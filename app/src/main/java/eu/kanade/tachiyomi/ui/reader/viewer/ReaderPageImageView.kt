@@ -130,6 +130,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             anchorHeight: Float,
             isVertical: Boolean,
             mediaInfo: chimahon.MediaInfo?,
+            block: OcrTextBlock?,
         ) -> Unit
     )? = null
 
@@ -691,6 +692,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
             logcat(LogPriority.WARN) { "OCR lookup string is blank" }
             return true
         }
+        val sentenceText = block.orderedFullText
+        val sentenceOffset = block.toOrderedOffset(charOffset)
 
         ocrPopupLookupString = lookupString
 
@@ -718,9 +721,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
         val anchorHeight = br.y - tl.y
 
         onShowOcrPopup?.invoke(
-            lookupString, block.fullText, charOffset, 
-            anchorX, anchorY, anchorWidth, anchorHeight, 
-            block.vertical, null
+            lookupString, sentenceText, sentenceOffset,
+            anchorX, anchorY, anchorWidth, anchorHeight,
+            block.vertical, null, block
         )
         return true
     }
