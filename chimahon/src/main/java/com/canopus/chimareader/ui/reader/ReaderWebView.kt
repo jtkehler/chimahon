@@ -492,7 +492,7 @@ private class ReaderAndroidWebView(
         }
 
         appendLine("::highlight(hoshi-selection) { background-color: rgba(130, 150, 200, 0.4); color: inherit; }")
-        appendLine("p { margin-top: 0 !important; margin-bottom: 0 !important; }")
+        appendLine("p { margin-block-start: 0 !important; margin-block-end: ${readerSettings.paragraphSpacing}em !important; }")
         appendLine("body * { font-family: inherit !important; }")
         appendLine("img.hoshi-image-block, svg.hoshi-image-block { position: static !important; }")
     }
@@ -501,6 +501,16 @@ private class ReaderAndroidWebView(
     // but doesn't fight the per-mode block-img rules injected below.
     private fun buildImageCSS(): String =
         "img { max-width: 100% !important; height: auto !important; }"
+
+    private fun paragraphSpacingJS(settings: ReaderSettings): String = """
+        var paragraphStyle = document.getElementById('hoshi-paragraph-spacing-style');
+        if (!paragraphStyle) {
+            paragraphStyle = document.createElement('style');
+            paragraphStyle.id = 'hoshi-paragraph-spacing-style';
+            document.head.appendChild(paragraphStyle);
+        }
+        paragraphStyle.textContent = 'p { margin-block-start: 0 !important; margin-block-end: ${settings.paragraphSpacing}em !important; }';
+    """.trimIndent()
 
     fun injectReader() {
         Log.d("ReaderWebView", "injectReader: ${width}x${height} continuous=$continuousMode imageOnly=$isImageOnly")
@@ -700,6 +710,7 @@ private class ReaderAndroidWebView(
 
                 wrapper.style.setProperty('font-size', '${readerSettings.fontSize}px', 'important');
                 wrapper.style.setProperty('line-height', '${readerSettings.lineHeight}', 'important');
+                ${paragraphSpacingJS(readerSettings)}
                 ${if (readerSettings.layoutAdvanced) """
                 wrapper.style.setProperty('letter-spacing', '${readerSettings.characterSpacing}em', 'important');
                 """ else ""}
@@ -879,6 +890,7 @@ private class ReaderAndroidWebView(
                 b.style.setProperty('padding', '0', 'important');
 
                 wrapper.style.setProperty('font-size', '${readerSettings.fontSize}px', 'important');
+                ${paragraphSpacingJS(readerSettings)}
                 ${if (readerSettings.layoutAdvanced) """
                 wrapper.style.setProperty('line-height', '${readerSettings.lineHeight}', 'important');
                 wrapper.style.setProperty('letter-spacing', '${readerSettings.characterSpacing}em', 'important');
@@ -1025,6 +1037,7 @@ private class ReaderAndroidWebView(
                 b.style.setProperty('font-size', '${settings.fontSize}px', 'important');
 
                 wrapper.style.setProperty('line-height', '${settings.lineHeight}', 'important');
+                ${paragraphSpacingJS(settings)}
                 ${if (settings.layoutAdvanced) """
                 wrapper.style.setProperty('letter-spacing', '${settings.characterSpacing}em', 'important');
                 """ else ""}

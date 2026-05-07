@@ -414,6 +414,23 @@ fun AppearanceSheet(
                                 steps = 10
                             )
                         }
+
+                        // Paragraph Spacing
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Paragraph Spacing", style = MaterialTheme.typography.bodySmall)
+                                Text("%.2f em".format(viewModel.paragraphSpacing), style = MaterialTheme.typography.bodySmall)
+                            }
+                            Slider(
+                                value = viewModel.paragraphSpacing.toFloat(),
+                                onValueChange = { viewModel.updateParagraphSpacing(it.toDouble()) },
+                                valueRange = 0f..2f,
+                                steps = 19
+                            )
+                        }
                     }
                 }
             }

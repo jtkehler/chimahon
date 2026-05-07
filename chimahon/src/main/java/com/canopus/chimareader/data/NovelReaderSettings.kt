@@ -114,6 +114,10 @@ class NovelReaderSettings(private val context: Context) {
         prefs[PreferencesKeys.CHARACTER_SPACING] ?: 0.0
     }
 
+    val paragraphSpacing: Flow<Double> = dataStore.data.map { prefs ->
+        prefs[PreferencesKeys.PARAGRAPH_SPACING] ?: 0.0
+    }
+
     val readerShowTitle: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[PreferencesKeys.READER_SHOW_TITLE] ?: true
     }
@@ -298,6 +302,12 @@ class NovelReaderSettings(private val context: Context) {
         }
     }
 
+    suspend fun setParagraphSpacing(value: Double) {
+        dataStore.edit { prefs ->
+            prefs[PreferencesKeys.PARAGRAPH_SPACING] = value
+        }
+    }
+
     suspend fun setReaderShowTitle(value: Boolean) {
         dataStore.edit { prefs ->
             prefs[PreferencesKeys.READER_SHOW_TITLE] = value
@@ -415,6 +425,7 @@ class NovelReaderSettings(private val context: Context) {
         val LAYOUT_ADVANCED = booleanPreferencesKey("layout_advanced")
         val LINE_HEIGHT = doublePreferencesKey("line_height")
         val CHARACTER_SPACING = doublePreferencesKey("character_spacing")
+        val PARAGRAPH_SPACING = doublePreferencesKey("paragraph_spacing")
         val READER_SHOW_TITLE = booleanPreferencesKey("reader_show_title")
         val READER_SHOW_CHARACTERS = booleanPreferencesKey("reader_show_characters")
         val READER_SHOW_PERCENTAGE = booleanPreferencesKey("reader_show_percentage")

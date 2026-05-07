@@ -55,6 +55,7 @@ data class ReaderSettings(
     val fontSize: Int = 18,
     val lineHeight: Double = 1.6,
     val characterSpacing: Double = 0.0,
+    val paragraphSpacing: Double = 0.0,
     val horizontalPadding: Int = 10,
     val verticalPadding: Int = 10,
     val selectedFont: String = "System Serif",
@@ -158,6 +159,7 @@ class ReaderViewModel(
     var sasayakiPlayer: SasayakiPlayer? by mutableStateOf(null)
     var verticalWriting by mutableStateOf(true)
     var characterSpacing by mutableDoubleStateOf(0.0)
+    var paragraphSpacing by mutableDoubleStateOf(0.0)
     var justifyText by mutableStateOf(false)
     var avoidPageBreak by mutableStateOf(true)
     var hideFurigana by mutableStateOf(false)
@@ -236,6 +238,7 @@ class ReaderViewModel(
             customBackgroundColor = settings.customBackgroundColor.first()
             customTextColor = settings.customTextColor.first()
             verticalWriting = settings.verticalWriting.first()
+            paragraphSpacing = settings.paragraphSpacing.first()
             avoidPageBreak = settings.avoidPageBreak.first()
             hideFurigana = settings.readerHideFurigana.first()
             tapZonePercent = settings.chapterTapZones.first()
@@ -332,6 +335,9 @@ class ReaderViewModel(
             settings.characterSpacing.collect { characterSpacing = it }
         }
         scope.launch {
+            settings.paragraphSpacing.collect { paragraphSpacing = it }
+        }
+        scope.launch {
             settings.avoidPageBreak.collect { avoidPageBreak = it }
         }
         scope.launch {
@@ -365,6 +371,7 @@ class ReaderViewModel(
     fun updateAvoidPageBreak(value: Boolean) = scope.launch { settings.setAvoidPageBreak(value) }
     fun updateHideFurigana(value: Boolean) = scope.launch { settings.setReaderHideFurigana(value) }
     fun updateCharacterSpacing(value: Double) = scope.launch { settings.setCharacterSpacing(value) }
+    fun updateParagraphSpacing(value: Double) = scope.launch { settings.setParagraphSpacing(value) }
     fun updateLayoutAdvanced(value: Boolean) = scope.launch { settings.setLayoutAdvanced(value) }
     fun updateTapZonePercent(value: Int) = scope.launch { settings.setChapterTapZones(value) }
     fun updateKeepScreenOn(value: Boolean) = scope.launch { settings.setKeepScreenOn(value) }
@@ -391,6 +398,7 @@ class ReaderViewModel(
             fontSize = fontSize,
             lineHeight = lineHeight,
             characterSpacing = characterSpacing,
+            paragraphSpacing = paragraphSpacing,
             horizontalPadding = horizontalPadding,
             verticalPadding = verticalPadding,
             selectedFont = selectedFont,
