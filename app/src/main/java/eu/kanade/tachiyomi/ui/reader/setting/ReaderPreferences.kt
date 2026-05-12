@@ -160,9 +160,9 @@ class ReaderPreferences(
 
     fun readWithVolumeKeysInverted() = preferenceStore.getBoolean("reader_volume_keys_inverted", false)
 
-    fun navigationModePager() = preferenceStore.getInt("reader_navigation_mode_pager", 0)
+    fun navigationModePager() = preferenceStore.getInt("reader_navigation_mode_pager", 5)
 
-    fun navigationModeWebtoon() = preferenceStore.getInt("reader_navigation_mode_webtoon", 0)
+    fun navigationModeWebtoon() = preferenceStore.getInt("reader_navigation_mode_webtoon", 5)
 
     fun pagerNavInverted() = preferenceStore.getEnum("reader_tapping_inverted", TappingInvertMode.NONE)
 
