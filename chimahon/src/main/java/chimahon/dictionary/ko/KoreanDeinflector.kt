@@ -16,7 +16,9 @@ object KoreanDeinflector : Deinflector {
         text: String,
         languageCode: String,
     ): List<DeinflectionResult> {
-        return deinflector.deinflect(text)
+        return deinflector.deinflect(text).map { result ->
+            DeinflectionResult(KoreanTextProcessors.assemble(result.text), result.conditionsOut)
+        }
     }
 
     override fun wrapResults(
