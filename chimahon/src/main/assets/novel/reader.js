@@ -1,7 +1,9 @@
 window.hoshiReader = {
     isRtl: false,
     continuousMode: false,
-    ttuRegexNegated: /[^0-9A-Za-z○◯々-〇〻ぁ-ゖゝ-ゞァ-ヺー０-９Ａ-Ｚａ-ｚｦ-ﾝ\p{Radical}\p{Unified_Ideograph}]+/gimu,
+    // Character counting regex: keeps alphanumeric and CJK scripts (Japanese, Chinese, Korean).
+    // Added \p{Script=Hangul} to support Korean and clarified the CJK ideograph property.
+    ttuRegexNegated: /[^0-9A-Za-z○◯々-〇〻ぁ-ゖゝ-ゞァ-ヺー０-９Ａ-Ｚａ-ｚｦ-ﾝ\p{Radical}\p{Unified_Ideograph}\p{Script=Hangul}]+/gimu,
 
     isVertical: function() {
         return window.getComputedStyle(document.body).writingMode === "vertical-rl";

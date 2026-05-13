@@ -63,19 +63,33 @@ class DictionaryRepository(
         val results = if (effectiveLang == "ja") {
             HoshiDicts.lookup(activeSession, query, 20).toList()
         } else if (genericDeinflector != null) {
-            val candidates = linkedSetOf<String>()
-            for (preprocessed in genericDeinflector.preProcess(query).distinct()) {
-                for (deinflected in genericDeinflector.deinflect(preprocessed, effectiveLang)) {
-                    candidates += deinflected.text
+            val finalResults = mutableListOf<chimahon.LookupResult>()
+            for (i in query.length downTo 1) {
+                val substring = query.substring(0, i)
+                val candidates = mutableMapOf<String, chimahon.dictionary.DeinflectionResult>()
+                for (preprocessed in genericDeinflector.preProcess(substring).distinct()) {
+                    for (deinflected in genericDeinflector.deinflect(preprocessed, effectiveLang)) {
+                        if (deinflected.text !in candidates) {
+                            candidates[deinflected.text] = deinflected
+                        }
+                    }
+                }
+                if (candidates.isNotEmpty()) {
+                    val substringResults = candidates.flatMap { (candidateText, deinflected) ->
+                        HoshiDicts.query(activeSession, candidateText).map { termResult ->
+                            chimahon.LookupResult(
+                                matched = substring,
+                                deinflected = candidateText,
+                                process = emptyArray(),
+                                term = termResult,
+                                preprocessorSteps = 0,
+                            )
+                        }
+                    }
+                    finalResults.addAll(substringResults)
                 }
             }
-            if (candidates.isEmpty()) {
-                emptyList()
-            } else {
-                candidates.flatMap { candidate ->
-                    HoshiDicts.lookup(activeSession, candidate, 20).toList()
-                }.distinctBy { it.term.expression to it.term.reading }.take(20)
-            }
+            finalResults.distinctBy { it.term.expression to it.term.reading }.take(20)
         } else {
             HoshiDicts.lookup(activeSession, query, 20).toList()
         }
