@@ -137,10 +137,15 @@ class DictionaryRepository(
         results: List<LookupResult>,
     ): Map<String, String> {
         val requested = linkedSetOf<Pair<String, String>>()
-        results.forEach { lookup ->
-            lookup.term.glossaries.forEach { glossary ->
-                extractImagePaths(glossary.glossary)
-                    .forEach { path -> requested += glossary.dictName to path }
+        run loop@{
+            results.forEach { lookup ->
+                lookup.term.glossaries.forEach { glossary ->
+                    extractImagePaths(glossary.glossary)
+                        .forEach { path ->
+                            requested += glossary.dictName to path
+                            if (requested.size >= MAX_PRELOADED_MEDIA_ITEMS) return@loop
+                        }
+                }
             }
         }
 

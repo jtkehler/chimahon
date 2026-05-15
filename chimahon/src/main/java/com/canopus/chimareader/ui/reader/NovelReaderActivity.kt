@@ -6,7 +6,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -99,6 +102,9 @@ open class NovelReaderActivity : ComponentActivity() {
     /** Subclasses can override to pass a profile ID for per-profile settings. */
     protected open fun getSettingsNamespace(): String? = null
 
+    /** Override to receive selection rects from JS for native highlight overlay. */
+    protected open fun getSelectionRectsCallback(): ((String) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
 
@@ -123,23 +129,26 @@ open class NovelReaderActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            ReaderScreen(
-                book = metadata,
-                onBack = { finish() },
-                onShowHudChanged = { visible -> 
-                    isHudVisible = visible
-                    setSystemBarsVisibility(visible) 
-                },
-                onThemeChanged = { bgColor -> updateSystemBarsTheme(bgColor) },
-                onLookupRequested = { word, sentence, x, y, w, h -> onLookupRequested(word, sentence, x, y, w, h) },
-                onSentenceReady = { sentence -> onSentenceReady(sentence) },
-                onDismissPopupRequested = { onDismissPopupRequested() },
-                isPopupActive = isPopupActive,
-                onViewModelReady = { readerViewModel = it },
-                additionalSettings = { AdditionalAppearanceSettings() },
-                settingsNamespace = getSettingsNamespace(),
-            )
-            PopupOverlay()
+            Box(Modifier.fillMaxSize()) {
+                ReaderScreen(
+                    book = metadata,
+                    onBack = { finish() },
+                    onShowHudChanged = { visible ->
+                        isHudVisible = visible
+                        setSystemBarsVisibility(visible)
+                    },
+                    onThemeChanged = { bgColor -> updateSystemBarsTheme(bgColor) },
+                    onLookupRequested = { word, sentence, x, y, w, h -> onLookupRequested(word, sentence, x, y, w, h) },
+                    onSentenceReady = { sentence -> onSentenceReady(sentence) },
+                    onDismissPopupRequested = { onDismissPopupRequested() },
+                    isPopupActive = isPopupActive,
+                    onViewModelReady = { readerViewModel = it },
+                    additionalSettings = { AdditionalAppearanceSettings() },
+                    settingsNamespace = getSettingsNamespace(),
+                    onSelectionRectsReceived = getSelectionRectsCallback(),
+                )
+                PopupOverlay()
+            }
         }
     }
 

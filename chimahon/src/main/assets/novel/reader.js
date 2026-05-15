@@ -446,6 +446,62 @@ window.hoshiReader = {
         CSS.highlights.set('hoshi-selection', new Highlight(...highlights));
     },
 
+    /**
+     * Return selection rects as JSON array [{x,y,width,height}, ...]
+     * for painting in a native Compose overlay.  Falls back to CSS.highlight
+     * if the bridge is not available.
+     */
+    getSelectionRects: function(charCount, startOffset) {
+        if (!this.selectionRanges || !this.selectionRanges.length) return [];
+        if (startOffset === undefined) startOffset = 0;
+        var remaining = startOffset;
+        var skipRange = -1;
+        var skipEnd = 0;
+
+        // Skip `startOffset` characters through the ranges
+        for (var i = 0; i < this.selectionRanges.length; i++) {
+            var r = this.selectionRanges[i];
+            var avail = r.end - r.start;
+            if (remaining < avail) {
+                skipRange = i;
+                skipEnd = r.start + remaining;
+                break;
+            }
+            remaining -= avail;
+        }
+        if (skipRange < 0) return [];
+
+        // Now build ranges from the skip point, limited to charCount
+        var ranges = [];
+        remaining = charCount;
+        for (var i = skipRange; i < this.selectionRanges.length; i++) {
+            var r = this.selectionRanges[i];
+            if (remaining <= 0) break;
+            var start = (i === skipRange) ? skipEnd : r.start;
+            var end = start;
+            while (end < r.end && remaining > 0) {
+                var ch = String.fromCodePoint(r.node.textContent.codePointAt(end));
+                end += ch.length;
+                remaining--;
+            }
+            var range = document.createRange();
+            range.setStart(r.node, start);
+            range.setEnd(r.node, end);
+            ranges.push(range);
+        }
+
+        var rects = [];
+        for (var ri = 0; ri < ranges.length; ri++) {
+            var clientRects = ranges[ri].getClientRects();
+            for (var ci = 0; ci < clientRects.length; ci++) {
+                var cr = clientRects[ci];
+                rects.push({x: cr.x, y: cr.y, width: cr.width, height: cr.height});
+            }
+        }
+
+        return rects;
+    },
+
     clearSelection: function() {
         if (CSS.highlights && CSS.highlights.has('hoshi-selection')) {
             CSS.highlights.get('hoshi-selection').clear();

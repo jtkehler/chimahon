@@ -146,6 +146,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import tachiyomi.core.common.Constants
 import tachiyomi.core.common.i18n.pluralStringResource
 import tachiyomi.core.common.i18n.stringResource
@@ -218,6 +219,7 @@ class ReaderActivity : BaseActivity() {
     private var loadingIndicator: ReaderProgressIndicator? = null
 
     private var ocrPopupState by mutableStateOf<OcrPopupState?>(null)
+    private var ocrPopupVisible by mutableStateOf(false)
 
     private var pendingNoteId by mutableStateOf<Long?>(null)
     private var pendingGlossaryIndex by mutableStateOf<Int?>(null)
@@ -266,7 +268,7 @@ class ReaderActivity : BaseActivity() {
         val activeProfile: chimahon.anki.AnkiProfile,
         val mediaInfo: chimahon.MediaInfo? = null,
         val sourcePage: ReaderPage? = null,
-        val deferredLookup: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>,
+        val deferredLookup: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>? = null,
     )
 
     var isScrollingThroughPages = false
@@ -631,8 +633,8 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        BackHandler(enabled = ocrPopupState != null) {
-            ocrPopupState = null
+        BackHandler(enabled = ocrPopupVisible) {
+            ocrPopupVisible = false
             // Also clear the visual highlight on whichever webtoon page has an active block.
             val viewer = viewModel.state.value.viewer
             if (viewer is WebtoonViewer) {
@@ -648,133 +650,163 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        // OCR Dictionary Popup
-        ocrPopupState?.let { popupState ->
-            val dismissPopup = {
-                ocrPopupState = null
-            }
+        // OCR Dictionary Popup — warm shell: always in composition, hidden via visible flag.
+        val popupState = ocrPopupState
+        val defaultProfile = chimahon.anki.AnkiProfile.EMPTY
+        val defaultRepo = remember { dictionaryRepository }
+        val defaultWebView = remember { ocrWebView ?: createOcrWebView(this@ReaderActivity).also { ocrWebView = it } }
 
-            OcrLookupPopup(
-                lookupString = popupState.lookupString,
-                fullText = popupState.fullText,
-                charOffset = popupState.charOffset,
-                onDismiss = dismissPopup,
-                webView = popupState.webView,
-                repository = popupState.repository,
-                anchorX = popupState.anchorX,
-                anchorY = popupState.anchorY,
-                anchorWidth = popupState.anchorWidth,
-                anchorHeight = popupState.anchorHeight,
-                isVertical = popupState.isVertical,
-                mediaInfo = popupState.mediaInfo,
-                onRequestScreenshot = {
-                    captureCurrentVisibleBitmap()
-                },
-                onCropTriggered = { noteId, glossaryIndex ->
-                    pendingNoteId = noteId
-                    pendingGlossaryIndex = glossaryIndex
-                    launchImageCropper()
-                },
-                initialLookupDeferred = popupState.deferredLookup,
-                usePopup = false,
-                activeProfile = popupState.activeProfile,
-                onTermMatched = { charCount ->
-                    val viewer = viewModel.state.value.viewer
-                    val anchorRect: android.graphics.RectF? = if (viewer is WebtoonViewer) {
-                        var rect: android.graphics.RectF? = null
-                        for (i in 0 until viewer.recycler.childCount) {
-                            val h = viewer.recycler.getChildViewHolder(viewer.recycler.getChildAt(i)) as? WebtoonPageHolder
-                            if (h?.hasActiveOcrBlock == true) {
-                                rect = h.refineActiveOcrBlock(charCount)
-                                break
-                            }
+        OcrLookupPopup(
+            visible = ocrPopupVisible,
+            lookupString = if (ocrPopupVisible && popupState != null) popupState.lookupString else "",
+            fullText = popupState?.fullText ?: "",
+            charOffset = popupState?.charOffset ?: 0,
+            onDismiss = {
+                ocrPopupVisible = false
+            },
+            webView = popupState?.webView ?: defaultWebView,
+            repository = popupState?.repository ?: defaultRepo,
+            anchorX = popupState?.anchorX ?: 0f,
+            anchorY = popupState?.anchorY ?: 0f,
+            anchorWidth = popupState?.anchorWidth ?: 0f,
+            anchorHeight = popupState?.anchorHeight ?: 0f,
+            isVertical = popupState?.isVertical ?: false,
+            mediaInfo = popupState?.mediaInfo,
+            onRequestScreenshot = {
+                captureCurrentVisibleBitmap()
+            },
+            onCropTriggered = { noteId, glossaryIndex ->
+                pendingNoteId = noteId
+                pendingGlossaryIndex = glossaryIndex
+                launchImageCropper()
+            },
+            initialLookupDeferred = if (ocrPopupVisible) popupState?.deferredLookup else null,
+            usePopup = false,
+            activeProfile = popupState?.activeProfile ?: defaultProfile,
+            onTermMatched = { charCount, _ ->
+                val viewer = viewModel.state.value.viewer
+                val anchorRect: android.graphics.RectF? = if (viewer is WebtoonViewer) {
+                    var rect: android.graphics.RectF? = null
+                    for (i in 0 until viewer.recycler.childCount) {
+                        val h = viewer.recycler.getChildViewHolder(viewer.recycler.getChildAt(i)) as? WebtoonPageHolder
+                        if (h?.hasActiveOcrBlock == true) {
+                            rect = h.refineActiveOcrBlock(charCount)
+                            break
                         }
-                        rect
-                    } else if (viewer is PagerViewer) {
-                        var rect: android.graphics.RectF? = null
-                        for (i in 0 until viewer.pager.childCount) {
-                            val h = viewer.pager.getChildAt(i) as? PagerPageHolder
-                            if (h?.hasActiveOcrBlock == true) {
-                                rect = h.refineActiveOcrBlock(charCount)
-                                break
-                            }
-                        }
-                        rect
-                    } else {
-                        null
                     }
+                    rect
+                } else if (viewer is PagerViewer) {
+                    var rect: android.graphics.RectF? = null
+                    for (i in 0 until viewer.pager.childCount) {
+                        val h = viewer.pager.getChildAt(i) as? PagerPageHolder
+                        if (h?.hasActiveOcrBlock == true) {
+                            rect = h.refineActiveOcrBlock(charCount)
+                            break
+                        }
+                    }
+                    rect
+                } else {
+                    null
+                }
 
-                    if (anchorRect != null) {
-                        ocrPopupState = ocrPopupState?.copy(
-                            anchorX = anchorRect.left,
-                            anchorY = anchorRect.top,
-                            anchorWidth = anchorRect.width(),
-                            anchorHeight = anchorRect.height(),
-                        )
-                    }
-                },
-            )
-        }
+                if (anchorRect != null) {
+                    ocrPopupState = ocrPopupState?.copy(
+                        anchorX = anchorRect.left,
+                        anchorY = anchorRect.top,
+                        anchorWidth = anchorRect.width(),
+                        anchorHeight = anchorRect.height(),
+                    )
+                }
+            },
+        )
 
         // Set up OCR popup callback on the active reader viewer.
         when (val viewer = viewModel.state.value.viewer) {
             is PagerViewer -> {
                 if (viewer.onShowOcrPopup == null) {
                     viewer.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, _, sourcePage ->
-                        // Start lookup immediately off the main thread.
                         val (activeProfile, deferredLookup) = preDeferLookup(lookupString)
 
-                        runOnUiThread {
-                            val state = viewModel.state.value
-                            val mediaInfo = if (state.manga != null && state.currentChapter != null) {
-                                chimahon.MediaInfo(
-                                    mangaTitle = state.manga!!.title,
-                                    chapterName = state.currentChapter!!.chapter.name,
-                                )
-                            } else {
-                                null
+                        lifecycleScope.launch(Dispatchers.Default) {
+                            val result = try { deferredLookup.await() } catch (_: Exception) { null }
+                            val firstMatched = result?.results?.firstOrNull()?.matched
+                            val charCount = firstMatched?.codePointCount(0, firstMatched.length)
+
+                            val rect = withContext(Dispatchers.Main) {
+                                if (charCount != null) {
+                                    val pager = viewer.pager
+                                    for (i in 0 until pager.childCount) {
+                                        val h = pager.getChildAt(i) as? PagerPageHolder
+                                        if (h?.hasActiveOcrBlock == true) return@withContext h.refineActiveOcrBlock(charCount)
+                                    }
+                                }
+                                null as android.graphics.RectF?
                             }
-                            ensureOcrResources(attachForWarmup = false)
-                            ocrPopupState = OcrPopupState(
-                                lookupString, fullText, charOffset, ocrWebView!!, dictionaryRepository,
-                                anchorX, anchorY, anchorWidth, anchorHeight, isVertical, getOrRefreshLookupPaths().first, mediaInfo, sourcePage, deferredLookup
-                            )
+
+                                withContext(Dispatchers.Main) {
+                                val state = viewModel.state.value
+                                val mediaInfo = if (state.manga != null && state.currentChapter != null) {
+                                    chimahon.MediaInfo(mangaTitle = state.manga!!.title, chapterName = state.currentChapter!!.chapter.name)
+                                } else null
+                                ensureOcrResources(attachForWarmup = false)
+                                ocrPopupState = OcrPopupState(
+                                    lookupString, fullText, charOffset, ocrWebView!!, dictionaryRepository,
+                                    rect?.left ?: anchorX, rect?.top ?: anchorY,
+                                    rect?.width() ?: anchorWidth, rect?.height() ?: anchorHeight,
+                                    isVertical, getOrRefreshLookupPaths().first, mediaInfo, sourcePage, null
+                                )
+                                ocrPopupVisible = true
+                            }
                         }
                     }
                 }
                 if (viewer.onDismissOcrPopup == null) {
                     viewer.onDismissOcrPopup = {
-                        runOnUiThread { ocrPopupState = null }
+                        runOnUiThread { ocrPopupVisible = false }
                     }
                 }
             }
             is WebtoonViewer -> {
                 if (viewer.onShowOcrPopup == null) {
                     viewer.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, _, sourcePage ->
-                        // Start lookup immediately off the main thread.
                         val (activeProfile, deferredLookup) = preDeferLookup(lookupString)
 
-                        runOnUiThread {
-                            val state = viewModel.state.value
-                            val mediaInfo = if (state.manga != null && state.currentChapter != null) {
-                                chimahon.MediaInfo(
-                                    mangaTitle = state.manga!!.title,
-                                    chapterName = state.currentChapter!!.chapter.name,
-                                )
-                            } else {
-                                null
+                        lifecycleScope.launch(Dispatchers.Default) {
+                            val result = try { deferredLookup.await() } catch (_: Exception) { null }
+                            val firstMatched = result?.results?.firstOrNull()?.matched
+                            val charCount = firstMatched?.codePointCount(0, firstMatched.length)
+
+                            val rect = withContext(Dispatchers.Main) {
+                                if (charCount != null) {
+                                    val recycler = viewer.recycler
+                                    for (i in 0 until recycler.childCount) {
+                                        val h = recycler.getChildViewHolder(recycler.getChildAt(i)) as? WebtoonPageHolder
+                                        if (h?.hasActiveOcrBlock == true) return@withContext h.refineActiveOcrBlock(charCount)
+                                    }
+                                }
+                                null as android.graphics.RectF?
                             }
-                            ensureOcrResources(attachForWarmup = false)
-                            ocrPopupState = OcrPopupState(
-                                lookupString, fullText, charOffset, ocrWebView!!, dictionaryRepository,
-                                anchorX, anchorY, anchorWidth, anchorHeight, isVertical, getOrRefreshLookupPaths().first, mediaInfo, sourcePage, deferredLookup
-                            )
+
+                                withContext(Dispatchers.Main) {
+                                val state = viewModel.state.value
+                                val mediaInfo = if (state.manga != null && state.currentChapter != null) {
+                                    chimahon.MediaInfo(mangaTitle = state.manga!!.title, chapterName = state.currentChapter!!.chapter.name)
+                                } else null
+                                ensureOcrResources(attachForWarmup = false)
+                                ocrPopupState = OcrPopupState(
+                                    lookupString, fullText, charOffset, ocrWebView!!, dictionaryRepository,
+                                    rect?.left ?: anchorX, rect?.top ?: anchorY,
+                                    rect?.width() ?: anchorWidth, rect?.height() ?: anchorHeight,
+                                    isVertical, getOrRefreshLookupPaths().first, mediaInfo, sourcePage, null
+                                )
+                                ocrPopupVisible = true
+                            }
                         }
                     }
                 }
                 if (viewer.onDismissOcrPopup == null) {
                     viewer.onDismissOcrPopup = {
-                        runOnUiThread { ocrPopupState = null }
+                        runOnUiThread { ocrPopupVisible = false }
                     }
                 }
             }
@@ -871,16 +903,18 @@ class ReaderActivity : BaseActivity() {
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Chimahon: Redirect volume keys to the OCR popup if it's active
-        ocrPopupState?.let { popup ->
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                when (event.keyCode) {
-                    KeyEvent.KEYCODE_VOLUME_UP -> {
-                        popup.webView.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
-                        return true
-                    }
-                    KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                        popup.webView.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
-                        return true
+        if (ocrPopupVisible) {
+            ocrPopupState?.let { popup ->
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_VOLUME_UP -> {
+                            popup.webView.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
+                            return true
+                        }
+                        KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                            popup.webView.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
+                            return true
+                        }
                     }
                 }
             }

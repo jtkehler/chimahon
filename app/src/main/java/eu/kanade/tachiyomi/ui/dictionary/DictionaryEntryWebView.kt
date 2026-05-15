@@ -26,8 +26,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -60,6 +63,10 @@ private const val CHIMA_HOST_BACK = "back"
 /** Represents one entry in the scrollable lookup-history tab bar shown inside the WebView. */
 data class TabInfo(val label: String, val active: Boolean)
 
+/**
+ * Full signature — used as a key for the payload builder.
+ * Split into resultsKey (data) + settingsSignature (display) for optimization.
+ */
 private data class DictionaryRenderSignature(
     val results: List<LookupResult>,
     val styles: List<DictionaryStyle>,
@@ -173,22 +180,29 @@ fun DictionaryEntryWebView(
         )
     }
 
-    val payloadObject = remember(context, renderSignature) {
+    // B1: Build payload off the main thread, track which signature it was built for.
+    var payloadPair by remember { mutableStateOf<Pair<String, DictionaryRenderSignature>?>(null) }
+    // Read during composition so Compose registers the dependency (update lambda reads it later)
+    val currentPayloadPair = payloadPair
+    LaunchedEffect(renderSignature) {
         val buildStart = SystemClock.elapsedRealtime()
-        val result = buildRenderPayload(
-            context, results, styles, emptyMap(), placeholder, isDark,
-            showFrequencyHarmonic, groupTerms, showPitchDiagram, showPitchNumber, showPitchText,
-            wordAudioAutoplay, activeProfile, emptySet(), tabs, recursiveNavMode,
-            wordAudioEnabled = wordAudioEnabled,
-            showNavigationButtons = showNavigationButtons,
-            groupPitches = groupPitches,
-        )
+        val p = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            buildRenderPayload(
+                context, results, styles, emptyMap(), placeholder, isDark,
+                showFrequencyHarmonic, groupTerms, showPitchDiagram, showPitchNumber, showPitchText,
+                wordAudioAutoplay, activeProfile, emptySet(), tabs, recursiveNavMode,
+                wordAudioEnabled = wordAudioEnabled,
+                showNavigationButtons = showNavigationButtons,
+                groupPitches = groupPitches,
+            ).toString()
+        }
         Log.i(
             "DictionaryRender",
             "payload_build_ms=${SystemClock.elapsedRealtime() - buildStart} results=${results.size} tabs=${tabs.size}",
         )
-        result
+        payloadPair = p to renderSignature
     }
+
     val bootstrapHtml = remember(context, isDark, amoled, seedColor, colorScheme, fontFamily, eInkMode, activeProfile.languageCode) {
         getDictionaryBootstrapHtml(
             context = context,
@@ -201,8 +215,6 @@ fun DictionaryEntryWebView(
             languageCode = activeProfile.languageCode,
         )
     }
-    
-    val payloadString = remember(payloadObject) { payloadObject.toString() }
     
     Box(modifier = modifier.background(BgColor)) {
         AndroidView<WebView>(
@@ -288,14 +300,20 @@ fun DictionaryEntryWebView(
                     if (isLoading) {
                         state.clear(webView)
                     } else {
-                        state.flush(webView, results, existingExpressions, mediaDataUris, renderSignature, payloadString)
+                        val (payload, payloadSig) = currentPayloadPair ?: (null to null)
+                        if (payload != null && payloadSig == renderSignature) {
+                            state.flush(webView, results, existingExpressions, mediaDataUris, renderSignature, payload)
+                        }
                     }
                 } else {
-                    state.pendingPayload = payloadString
-                    state.pendingResults = results
-                    state.pendingExistingExpressions = existingExpressions
-                    state.pendingMediaDataUris = mediaDataUris
-                    state.pendingRenderSignature = renderSignature
+                    val (pendingPayloadVal, pendingPayloadSig) = currentPayloadPair ?: (null to null)
+                    if (pendingPayloadVal != null && pendingPayloadSig == renderSignature) {
+                        state.pendingPayload = pendingPayloadVal
+                        state.pendingResults = results
+                        state.pendingExistingExpressions = existingExpressions
+                        state.pendingMediaDataUris = mediaDataUris
+                        state.pendingRenderSignature = renderSignature
+                    }
                 }
             },
             onRelease = { webView ->
@@ -328,6 +346,27 @@ private class DictionaryReadyBridge(
             (webView.tag as? DictionaryWebViewState)?.onContentReady?.invoke()
         }
     }
+}
+
+/**
+ * Bridge for passing large payloads (JSON, HTML) from Kotlin to JS without
+ * embedding them in evaluateJavascript() strings.  The JS side calls
+ * PayloadBridge.getPayloadJson() or PayloadBridge.getEntryHtml() to pull
+ * the data natively — avoids the overhead of encoding 300KB+ as a JS
+ * string literal.
+ */
+private class PayloadBridge {
+    @Volatile
+    var rawPayloadJson: String = ""
+
+    @Volatile
+    var rawEntryHtml: String = ""
+
+    @JavascriptInterface
+    fun getPayloadJson(): String = rawPayloadJson
+
+    @JavascriptInterface
+    fun getEntryHtml(): String = rawEntryHtml
 }
 
 private class WordAudioBridge(
@@ -450,6 +489,7 @@ internal fun prepareDictionaryWebViewShell(
 
         addJavascriptInterface(state.wordAudioBridge, "WordAudioBridge")
         addJavascriptInterface(state.readyBridge, "DictionaryReadyBridge")
+        addJavascriptInterface(state.payloadBridge, "PayloadBridge")
 
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -527,6 +567,7 @@ private class DictionaryWebViewState(
 ) {
     val wordAudioBridge: WordAudioBridge = WordAudioBridge(context, webViewProvider)
     val readyBridge: DictionaryReadyBridge = DictionaryReadyBridge(webViewProvider)
+    val payloadBridge: PayloadBridge = PayloadBridge()
     var pageReady: Boolean = false
     var fontSize: Int = 16
     var onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = null
@@ -662,11 +703,15 @@ private class DictionaryWebViewState(
 
         val renderStart = SystemClock.elapsedRealtime()
 
-        // Push the payload as a JS object literal so the warm shell can render without
-        // the extra Android JavaScript-interface round trip.
         onContentInvalidated?.invoke()
         injectFontSize(webView)
-        val payloadExpression = p.toJavascriptExpression()
+
+        // Store the payload in the bridge and have JS pull it natively.
+        // This avoids embedding 300KB+ JSON in an evaluateJavascript() string —
+        // the bridge delivers the string via @JavascriptInterface which is
+        // faster for large payloads.
+        payloadBridge.rawPayloadJson = p
+
         val ankiPatch = renderExistingExpressions?.let {
             "window.DictionaryRenderer.updateAnkiStatus(${org.json.JSONArray(it).toString().toJavascriptExpression()});"
         }.orEmpty()
@@ -674,7 +719,7 @@ private class DictionaryWebViewState(
             "window.DictionaryRenderer.updateMediaDataUris(${org.json.JSONObject(it).toString().toJavascriptExpression()});"
         }.orEmpty()
         webView.evaluateJavascript(
-            "if (window.DictionaryRenderer) { window.DictionaryRenderer.renderPayloadObject($payloadExpression); $ankiPatch $mediaPatch }",
+            "if (window.DictionaryRenderer) { window.DictionaryRenderer.renderFromBridge(); $ankiPatch $mediaPatch }",
             null,
         )
 

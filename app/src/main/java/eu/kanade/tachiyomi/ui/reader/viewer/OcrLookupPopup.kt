@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -88,6 +87,7 @@ private data class LookupFrame(
 
 @Composable
 fun OcrLookupPopup(
+    visible: Boolean = true,
     lookupString: String,
     fullText: String,
     charOffset: Int,
@@ -107,7 +107,7 @@ fun OcrLookupPopup(
     onCropTriggered: ((Long, Int?) -> Unit)? = null,
     initialLookupDeferred: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>? = null,
     usePopup: Boolean = true,
-    onTermMatched: ((Int) -> Unit)? = null,
+    onTermMatched: ((Int, Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -117,11 +117,18 @@ fun OcrLookupPopup(
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // ── Lookup history stack ──────────────────────────────────────────────
-    val lookupStack = remember { mutableStateListOf<LookupFrame>() }
-    var activeTabIndex by remember { mutableIntStateOf(0) }
-
-    val currentFrame: LookupFrame? = lookupStack.getOrNull(activeTabIndex)
+    // ── Lookup history stack (single state to batch updates) ──────────────
+    data class LookupStackState(
+        val stack: List<LookupFrame> = emptyList(),
+        val activeIndex: Int = 0,
+    ) {
+        val currentFrame: LookupFrame? get() = stack.getOrNull(activeIndex)
+        fun buildTabs(): List<TabInfo> = stack.mapIndexed { i, frame ->
+            TabInfo(label = frame.query.take(16), active = i == activeIndex)
+        }
+    }
+    var lookupStackState by remember { mutableStateOf(LookupStackState()) }
+    val currentFrame = lookupStackState.currentFrame
     val results = currentFrame?.results ?: emptyList()
     val styles = currentFrame?.styles ?: emptyList()
     val mediaDataUris = currentFrame?.mediaDataUris ?: emptyMap()
@@ -129,14 +136,6 @@ fun OcrLookupPopup(
     var contentReady by remember { mutableStateOf(false) }
     var hasRenderedContent by remember { mutableStateOf(false) }
     var lookupGeneration by remember { mutableIntStateOf(0) }
-
-    /** Build the [TabInfo] list that is passed to the JS tab bar. */
-    fun buildTabs(): List<TabInfo> = lookupStack.mapIndexed { i, frame ->
-        TabInfo(
-            label = frame.query.take(16),
-            active = i == activeTabIndex,
-        )
-    }
 
 
     val configuration = LocalConfiguration.current
@@ -219,9 +218,8 @@ fun OcrLookupPopup(
             )
 
             // Truncate any forward history past the current index, then push
-            while (lookupStack.size > activeTabIndex + 1) lookupStack.removeAt(lookupStack.size - 1)
-            lookupStack.add(frame)
-            activeTabIndex = lookupStack.size - 1
+            val truncated = lookupStackState.stack.take(lookupStackState.activeIndex + 1) + frame
+            lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
             errorMessage = result.error
 
             // Hide loading spinner — popup is visible
@@ -231,8 +229,9 @@ fun OcrLookupPopup(
                 val firstMatched = result.results.firstOrNull()?.matched
                 if (firstMatched != null) {
                     val charCount = firstMatched.codePointCount(0, firstMatched.length)
+                    val matchOffset = finalQuery.indexOf(firstMatched).coerceAtLeast(0)
                     scope.launch(Dispatchers.Main) {
-                        onTermMatched?.invoke(charCount)
+                        onTermMatched?.invoke(charCount, matchOffset)
                     }
                 }
             }
@@ -248,9 +247,11 @@ fun OcrLookupPopup(
                         dupScope = ankiDupScope,
                     )
                     withContext(Dispatchers.Main) {
-                        val frameIndex = lookupStack.indexOfFirst { it.id == frame.id }
+                        val stack = lookupStackState.stack.toMutableList()
+                        val frameIndex = stack.indexOfFirst { it.id == frame.id }
                         if (frameIndex >= 0) {
-                            lookupStack[frameIndex] = lookupStack[frameIndex].copy(existingExpressions = existing)
+                            stack[frameIndex] = stack[frameIndex].copy(existingExpressions = existing)
+                            lookupStackState = lookupStackState.copy(stack = stack)
                         }
                         Log.i(
                             "DictionaryPopup",
@@ -265,9 +266,11 @@ fun OcrLookupPopup(
                 val media = repository.loadMediaAsync(finalQuery, result.results)
                 if (media.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
-                        val frameIndex = lookupStack.indexOfFirst { it.id == frame.id }
+                        val stack = lookupStackState.stack.toMutableList()
+                        val frameIndex = stack.indexOfFirst { it.id == frame.id }
                         if (frameIndex >= 0) {
-                            lookupStack[frameIndex] = lookupStack[frameIndex].copy(mediaDataUris = media)
+                            stack[frameIndex] = stack[frameIndex].copy(mediaDataUris = media)
+                            lookupStackState = lookupStackState.copy(stack = stack)
                         }
                     }
                 }
@@ -351,10 +354,12 @@ fun OcrLookupPopup(
         // Local helper to update the state, which triggers the optimized JS call via DictionaryEntryWebView
         fun updateStatus(expression: String) {
             val frame = currentFrame ?: return
-            val frameIndex = lookupStack.indexOfFirst { it.id == frame.id }
+            val stack = lookupStackState.stack.toMutableList()
+            val frameIndex = stack.indexOfFirst { it.id == frame.id }
             if (frameIndex >= 0) {
                 val newExisting = frame.existingExpressions + expression
-                lookupStack[frameIndex] = lookupStack[frameIndex].copy(existingExpressions = newExisting)
+                stack[frameIndex] = stack[frameIndex].copy(existingExpressions = newExisting)
+                lookupStackState = lookupStackState.copy(stack = stack)
             }
         }
 
@@ -507,8 +512,8 @@ fun OcrLookupPopup(
             val acx = ax + aw / 2f
             val acy = ay + ah / 2f
 
-            val expW = aw
-            val expH = ah
+            val expW = maxOf(aw, 1f)
+            val expH = maxOf(ah, 1f)
 
             // 4 candidate positions (top-left corner of popup)
             data class Pos(val x: Float, val y: Float)
@@ -536,8 +541,7 @@ fun OcrLookupPopup(
                 val cx = p.x.coerceIn(paddingPx, screenWidthPx - w - paddingPx)
                 val cy = p.y.coerceIn(paddingPx, screenHeightPx - h - paddingPx)
 
-                val overlaps = aw > 0f && ah > 0f &&
-                    cx < ax + expW && cx + w > ax &&
+                val overlaps = cx < ax + expW && cx + w > ax &&
                     cy < ay + expH && cy + h > ay
 
                 if (!overlaps) {
@@ -566,21 +570,22 @@ fun OcrLookupPopup(
     val actualHeightDp = with(density) { layoutResult.heightPx.toDp() }
 
 
-    LaunchedEffect(lookupString, ankiEnabled, ankiModel) {
+    LaunchedEffect(lookupString, ankiEnabled, ankiModel, visible) {
+        if (!visible) return@LaunchedEffect
         if (lookupString.isBlank()) {
             lookupGeneration++
-            lookupStack.clear()
-            activeTabIndex = 0
+            lookupStackState = LookupStackState()
             isLoading = false
             contentReady = false
             hasRenderedContent = false
             return@LaunchedEffect
         }
-        // Reset the stack and load the initial term
-        lookupStack.clear()
-        activeTabIndex = 0
+        // Reset the stack and load the initial term.
+        // Don't reset contentReady here — the warm shell keeps the popup
+        // visible between lookups.  The renderer will call contentReady
+        // again once new entries are painted.
+        lookupStackState = LookupStackState()
         isLoading = initialLookupDeferred != null && !initialLookupDeferred.isCompleted
-        contentReady = false
         hasRenderedContent = false
         pushLookup(lookupString, deferredResult = initialLookupDeferred)
     }
@@ -588,10 +593,10 @@ fun OcrLookupPopup(
     // Callbacks forwarded from the WebView bridge
     val onRecursiveLookup: (String) -> Unit = { word -> pushLookup(word, isRecursive = true) }
     val onTabSelect: (Int) -> Unit = { idx ->
-        if (idx in lookupStack.indices) activeTabIndex = idx
+        if (idx in lookupStackState.stack.indices) lookupStackState = lookupStackState.copy(activeIndex = idx)
     }
     val onBack: () -> Unit = {
-        if (activeTabIndex > 0) activeTabIndex--
+        if (lookupStackState.activeIndex > 0) lookupStackState = lookupStackState.copy(activeIndex = lookupStackState.activeIndex - 1)
     }
 
     val outsideTapInteraction = remember { MutableInteractionSource() }
@@ -659,7 +664,7 @@ fun OcrLookupPopup(
                     showPitchText = showPitchText,
                     activeProfile = activeProfile,
                     existingExpressions = existingExpressions,
-                    tabs = buildTabs(),
+                    tabs = lookupStackState.buildTabs(),
                     recursiveNavMode = recursiveNavMode,
                     customCss = customCss,
                     wordAudioEnabled = wordAudioEnabled,
@@ -694,24 +699,36 @@ fun OcrLookupPopup(
         }
     }
 
+    // Warm shell: when not visible, render offscreen with alpha=0.
+    // The WebView stays in composition, pageReady stays true.
+    val hideOffset = (-10_000).dp
+
     if (usePopup) {
-        Popup(
-            offset = IntOffset(layoutResult.x.roundToInt(), layoutResult.y.roundToInt()),
-            onDismissRequest = { onDismiss() },
-            properties = PopupProperties(
-                focusable = false,
-                dismissOnClickOutside = false, // Handled by scrim in ChimaReaderActivity
-            ),
-        ) {
-            PopupContent()
+        if (visible) {
+            Popup(
+                offset = IntOffset(layoutResult.x.roundToInt(), layoutResult.y.roundToInt()),
+                onDismissRequest = { onDismiss() },
+                properties = PopupProperties(
+                    focusable = false,
+                    dismissOnClickOutside = false,
+                ),
+            ) {
+                PopupContent()
+            }
+        } else {
+            // Offscreen — keeps composable alive
+            Box(Modifier.offset(x = hideOffset, y = hideOffset).alpha(0f)) {
+                PopupContent()
+            }
         }
     } else {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .alpha(if (visible) 1f else 0f)
                 .offset(
-                    x = with(LocalDensity.current) { layoutResult.x.toDp() },
-                    y = with(LocalDensity.current) { layoutResult.y.toDp() },
+                    x = with(LocalDensity.current) { if (visible) layoutResult.x.toDp() else hideOffset },
+                    y = with(LocalDensity.current) { if (visible) layoutResult.y.toDp() else hideOffset },
                 )
         ) {
             PopupContent()

@@ -674,6 +674,7 @@
     if (_tabsEl) return _tabsEl;
     _tabsEl = document.createElement('div');
     _tabsEl.className = 'lookup-tabs';
+    _tabsEl.style.transition = 'transform 0.32s cubic-bezier(0.4,0,0.2,1)';
     return _tabsEl;
   }
 
@@ -689,6 +690,7 @@
     const el = getOrCreateTabsEl();
     el.textContent = '';
     el.className = 'lookup-tabs';
+    el.style.transition = 'transform 0.32s cubic-bezier(0.4,0,0.2,1)';
 
     if (_navMode === 'stack') {
       if (activeIndex > 0) {
@@ -2329,12 +2331,6 @@
       
       // Clear container but preserve the style nodes in head
       container.textContent = '';
-      _lastY = 0; // Reset scroll tracker for the new view
-      if (_tabsEl) {
-        _headerOffset = 0;
-        _tabsEl.style.transition = 'none';
-        _tabsEl.style.transform = 'translateY(0px)';
-      }
       
       
       const mediaMap = payload.mediaDataUris || {};
@@ -2432,32 +2428,14 @@
             _isJumping = true;
             setTimeout(() => {
               window.scrollTo(0, savedScroll);
-              _lastY = savedScroll;
-              if (_tabsEl) {
-                _headerOffset = 0;
-                _tabsEl.style.transition = 'none';
-                _tabsEl.style.transform = 'translateY(0px)';
-              }
               setTimeout(() => { _isJumping = false; }, 200);
             }, 100);
           } else {
             window.scrollTo(0, 0);
-            _lastY = 0;
-            if (_tabsEl) {
-              _headerOffset = 0;
-              _tabsEl.style.transition = 'none';
-              _tabsEl.style.transform = 'translateY(0px)';
-            }
           }
         } else {
           // Fresh lookup — jump to top
           window.scrollTo(0, 0);
-          _lastY = 0;
-          if (_tabsEl) {
-            _headerOffset = 0;
-            _tabsEl.style.transition = 'none';
-            _tabsEl.style.transform = 'translateY(0px)';
-          }
         }
 
         if (payload.wordAudioAutoplay) {
@@ -2514,6 +2492,92 @@
       render(payload);
     },
 
+    /**
+     * Fetch payload from PayloadBridge @JavascriptInterface and render.
+     * Avoids passing 300KB+ JSON through evaluateJavascript() — the bridge
+     * delivers the string natively, which is faster for large payloads.
+     */
+    renderFromBridge() {
+      try {
+        if (typeof PayloadBridge === 'undefined') {
+          console.error('[DictionaryRenderJS] PayloadBridge not available');
+          return;
+        }
+        const json = PayloadBridge.getPayloadJson();
+        if (!json) {
+          console.error('[DictionaryRenderJS] PayloadBridge returned empty');
+          return;
+        }
+        const payload = JSON.parse(json);
+        render(payload);
+      } catch (e) {
+        console.error('[DictionaryRenderJS] renderFromBridge error:', e.message);
+      }
+    },
+
+    /**
+     * Set entry HTML directly from Kotlin (pre-built via buildEntryHtml).
+     * Skips JS-side DOM creation entirely — WebKit's C++ HTML parser handles it.
+     * The bridge delivers the HTML string natively.
+     */
+    renderFromHtmlBridge() {
+      try {
+        if (typeof PayloadBridge === 'undefined') {
+          console.error('[DictionaryRenderJS] PayloadBridge not available');
+          return;
+        }
+        const html = PayloadBridge.getEntryHtml();
+        if (html == null) {
+          console.error('[DictionaryRenderJS] PayloadBridge.getEntryHtml returned null');
+          return;
+        }
+
+        const container = document.getElementById('entries');
+        if (!container) return;
+
+        container.innerHTML = html;
+        requestAnimationFrame(() => {
+          postContentReady();
+        });
+      } catch (e) {
+        console.error('[DictionaryRenderJS] renderFromHtmlBridge error:', e.message);
+      }
+    },
+
+    /**
+     * Clear entries container and re-render from bridge payload.
+     * Used for warm-shell lookups — no page reload needed.
+     */
+    replacePopupResults() {
+      try {
+        if (typeof PayloadBridge === 'undefined') {
+          console.error('[DictionaryRenderJS] PayloadBridge not available');
+          return;
+        }
+        const json = PayloadBridge.getPayloadJson();
+        if (!json) return;
+        const payload = JSON.parse(json);
+
+        _selectedDictionaries = {};
+        if (payload.ankiDupAction !== undefined) {
+          _lastAnkiDupAction = payload.ankiDupAction;
+        }
+        window.lookupEntries = undefined;
+        window.entryCount = Array.isArray(payload.results) ? payload.results.length : 0;
+
+        const container = document.getElementById('entries');
+        if (container) container.textContent = '';
+
+        render(payload);
+
+        requestAnimationFrame(() => {
+          document.scrollingElement.scrollTop = 0;
+        });
+      } catch (e) {
+        console.error('[DictionaryRenderJS] replacePopupResults error:', e.message);
+      }
+    },
+
     updateTabs(tabsJson) {
       try {
         const tabs = JSON.parse(tabsJson);
@@ -2555,7 +2619,7 @@
         groups[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
         
         // Hide tab bar when using navigation buttons/volume keys as requested
-        if (_tabsEl) _tabsEl.classList.add('tabs-hidden');
+        if (_tabsEl) _hideTabs();
 
         // Reset after the smooth scroll finishes
         setTimeout(() => { 
@@ -2609,71 +2673,36 @@
       }
     },
 
-    setTabHidden(hidden) {
-      if (_tabsEl) {
-        _maxOffsetCache = _maxOffsetCache || _tabsEl.offsetHeight || 50;
-        _headerOffset = hidden ? _maxOffsetCache : 0;
-        _tabsEl.style.transition = 'transform 0.3s ease';
-        _tabsEl.style.transform = `translateY(-${_headerOffset}px)`;
-      }
-    },
-
     onAudioResults: (id, results) => { /* overriden by UI */ }
   };
 
-  // ── Scroll Listener for Hiding Tabs ────────────────────────────────────────
-  let _lastY = 0;
+  // ── Show/hide top bar on scroll ───────────────────────────────────────────
   let _isJumping = false;
-  let _headerOffset = 0;
-  let _snapTimeout = null;
-  let _maxOffsetCache = 0;
-  let _lastScrollDirection = 0; // 1 for down, -1 for up
+  let _lastScrollY = 0;
+
+  const _hideTabs = () => {
+    if (_tabsEl) {
+      _tabsEl.style.transform = 'translateY(-100%)';
+      const entries = document.getElementById('entries');
+      if (entries) entries.style.paddingTop = '4px';
+    }
+  };
+  const _showTabs = () => {
+    if (_tabsEl) {
+      _tabsEl.style.transform = 'translateY(0)';
+      const entries = document.getElementById('entries');
+      if (entries) entries.style.paddingTop = (_tabsEl.offsetHeight || 40) + 'px';
+    }
+  };
 
   window.addEventListener('scroll', () => {
-    const y = Math.max(window.pageYOffset, document.documentElement.scrollTop, document.body.scrollTop, 0);
-    const delta = y - _lastY;
-    _lastY = y;
+    const y = window.scrollY || window.pageYOffset || 0;
+    const dy = y - _lastScrollY;
 
-    if (_isJumping || !_tabsEl) return;
+    if (y <= 0) { _showTabs(); _lastScrollY = y; return; }
+    if (Math.abs(dy) < 4) return;
 
-    if (_maxOffsetCache === 0) {
-      _maxOffsetCache = _tabsEl.offsetHeight || 50;
-      if (_maxOffsetCache <= 0 || _maxOffsetCache > 100) _maxOffsetCache = 50; // Safety bounds
-    }
-
-    // Always show perfectly at top
-    if (y <= 0) {
-      _headerOffset = 0;
-      _tabsEl.style.transition = 'transform 0.2s ease';
-      _tabsEl.style.transform = `translateY(0px)`;
-      return;
-    }
-
-    if (delta !== 0) {
-      _lastScrollDirection = delta > 0 ? 1 : -1;
-    }
-
-    // Accumulate the 1:1 scroll delta
-    _headerOffset += delta;
-    if (_headerOffset < 0) _headerOffset = 0;
-    if (_headerOffset > _maxOffsetCache) _headerOffset = _maxOffsetCache;
-
-    // Apply exact translation matching finger movement
-    _tabsEl.style.transition = 'none';
-    _tabsEl.style.transform = `translateY(-${_headerOffset}px)`;
-
-    // Snap to top or bottom when scrolling stops based on direction
-    clearTimeout(_snapTimeout);
-    _snapTimeout = setTimeout(() => {
-      if (_headerOffset > 0 && _headerOffset < _maxOffsetCache) {
-        _tabsEl.style.transition = 'transform 0.2s ease';
-        if (_lastScrollDirection === 1) {
-          _headerOffset = _maxOffsetCache; // Snap hidden if scrolling down
-        } else {
-          _headerOffset = 0; // Snap visible if scrolling up
-        }
-        _tabsEl.style.transform = `translateY(-${_headerOffset}px)`;
-      }
-    }, 150);
+    if (dy > 0 && !_isJumping) _hideTabs(); else _showTabs();
+    _lastScrollY = y;
   }, { passive: true });
 })();

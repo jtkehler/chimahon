@@ -45,6 +45,7 @@ fun ReaderScreen(
     onViewModelReady: (ReaderViewModel?) -> Unit = {},
     additionalSettings: @Composable ColumnScope.() -> Unit = {},
     settingsNamespace: String? = null,
+    onSelectionRectsReceived: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
 
@@ -224,6 +225,7 @@ fun ReaderScreen(
                         onTextSelected = { word, sentence, x, y, w, h -> onLookupRequested(word, sentence, x, y, w, h) },
                         onSentenceReady = onSentenceReady,
                         onInternalLinkClicked = { viewModel.jumpToUrl(it) },
+                        onSelectionRectsReceived = onSelectionRectsReceived,
                     )
 
                     // Top HUD

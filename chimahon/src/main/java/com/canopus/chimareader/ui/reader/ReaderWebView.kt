@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.common.io.Files.append
 import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 
@@ -49,6 +51,7 @@ fun ReaderWebView(
     onSentenceReady: (sentence: String) -> Unit = {},
     onDismissPopupRequested: () -> Unit = {},
     onInternalLinkClicked: (url: String) -> Unit = {},
+    onSelectionRectsReceived: ((String) -> Unit)? = null,
 ) {
     val pendingCommands = remember(bridge) { bridge.pendingCommands }
 
@@ -104,6 +107,7 @@ fun ReaderWebView(
                 onDismissPopupRequested = onDismissPopupRequested,
                 onInternalLinkClicked = onInternalLinkClicked,
             ).apply {
+                setSelectionRectsCallback(onSelectionRectsReceived)
                 settings.allowFileAccess = true
                 settings.allowContentAccess = true
                 settings.allowFileAccessFromFileURLs = true
@@ -208,6 +212,7 @@ fun ReaderWebView(
             v.readerSettings = readerSettings
             v.focusMode = focusMode
             v.isPopupActive = isPopupActive
+            v.setSelectionRectsCallback(onSelectionRectsReceived)
             v.setBackgroundColor(readerSettings.backgroundColor)
 
             if (pendingCommands.isEmpty()) return@AndroidView
@@ -270,6 +275,27 @@ fun ReaderWebView(
                     }
                     is WebViewCommand.HighlightSelection -> {
                         v.evaluateJavascript("if(window.hoshiReader && window.hoshiReader.highlightSelection) { window.hoshiReader.highlightSelection(${command.charCount}); }", null)
+                    }
+                    is WebViewCommand.GetSelectionRects -> {
+                        v.evaluateJavascript("(function() { try { return window.hoshiReader.getSelectionRects(${command.charCount}, ${command.startOffset}); } catch(e) { return []; } })()") { result ->
+                            val json = result ?: "[]"
+                            try {
+                                val loc = IntArray(2)
+                                v.getLocationOnScreen(loc)
+                                val scale = v.scale.coerceAtLeast(0.1f)
+                                val arr = org.json.JSONArray(json)
+                                for (i in 0 until arr.length()) {
+                                    val obj = arr.getJSONObject(i)
+                                    obj.put("x", obj.getDouble("x") * scale + loc[0])
+                                    obj.put("y", obj.getDouble("y") * scale + loc[1])
+                                    obj.put("width", obj.getDouble("width") * scale)
+                                    obj.put("height", obj.getDouble("height") * scale)
+                                }
+                                onSelectionRectsReceived?.invoke(arr.toString())
+                            } catch (_: Exception) {
+                                onSelectionRectsReceived?.invoke(json)
+                            }
+                        }
                     }
                     else -> {}
                 }
@@ -426,6 +452,11 @@ private class ReaderAndroidWebView(
         setLayerType(LAYER_TYPE_HARDWARE, null)
         addJavascriptInterface(jsBridge, "HoshiAndroid")
         setBackgroundColor(readerSettings.backgroundColor)
+    }
+
+    /** Set callback for selection rects from JS (used by Compose highlight overlay). */
+    fun setSelectionRectsCallback(callback: ((String) -> Unit)?) {
+        jsBridge.onSelectionRectsCallback = callback
     }
 
     fun loadChapter(url: String) {
@@ -1193,6 +1224,9 @@ private class ReaderJavascriptBridge(
     private val onBackgroundTap: (x: Float, y: Float) -> Unit = { _, _ -> },
     private val onSentenceReadyCallback: (sentence: String) -> Unit = {},
 ) {
+    /** Callback for selection rects from JS. Set by the hosting Activity. */
+    var onSelectionRectsCallback: ((String) -> Unit)? = null
+
     @JavascriptInterface
     fun restoreCompleted() {
         onRestoreCompleted()
@@ -1211,6 +1245,11 @@ private class ReaderJavascriptBridge(
     @JavascriptInterface
     fun onSentenceReady(sentence: String) {
         onSentenceReadyCallback.invoke(sentence)
+    }
+
+    @JavascriptInterface
+    fun onSelectionRects(json: String) {
+        onSelectionRectsCallback?.invoke(json)
     }
 }
 

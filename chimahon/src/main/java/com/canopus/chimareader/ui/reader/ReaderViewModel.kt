@@ -49,6 +49,7 @@ sealed interface WebViewCommand {
     data class Paginate(val forward: Boolean) : WebViewCommand
     data object ClearSelection : WebViewCommand
     data class HighlightSelection(val charCount: Int) : WebViewCommand
+    data class GetSelectionRects(val charCount: Int, val startOffset: Int = 0) : WebViewCommand
 }
 
 data class ReaderSettings(

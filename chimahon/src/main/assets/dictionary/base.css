@@ -65,7 +65,7 @@ body {
 }
 
 .entries {
-  padding: 4px 12px 4px 4px; /* extra right padding so icons are never clipped */
+  padding: 4px 12px 4px 4px; /* top padding adjusted dynamically for fixed tab bar */
 }
 
 .definition-list *,
@@ -588,8 +588,10 @@ table {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 1000;
   overflow-x: auto;
   white-space: nowrap;
@@ -602,6 +604,7 @@ table {
 .lookup-tabs::-webkit-scrollbar {
   display: none;
 }
+
 
 .lookup-tab {
   padding: 4px 12px;

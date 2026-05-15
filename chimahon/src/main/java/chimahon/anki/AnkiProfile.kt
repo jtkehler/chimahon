@@ -62,6 +62,7 @@ data class AnkiProfile(
     }
 
     companion object {
+        val EMPTY = AnkiProfile(id = "", name = "")
         const val DICTIONARY_COLLAPSE_EXPAND_ALL = "expand_all"
         const val DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE = "expand_first_available"
         const val DICTIONARY_COLLAPSE_COLLAPSE_ALL = "collapse_all"

@@ -6,9 +6,11 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -16,11 +18,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -33,8 +40,9 @@ import eu.kanade.tachiyomi.ui.dictionary.prepareDictionaryWebViewShell
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -121,6 +129,43 @@ class ChimaReaderActivity : NovelReaderActivity() {
     override fun getSettingsNamespace(): String? {
         val profile = cachedActiveProfile ?: getOrRefreshLookupPaths().first
         return profile.id.takeIf { it.isNotEmpty() }
+    }
+
+    override fun getSelectionRectsCallback(): ((String) -> Unit) = { json ->
+        runOnUiThread {
+            selectionRects.clear()
+            try {
+                val arr = JSONArray(json)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    selectionRects.add(
+                        SelectionRect(
+                            x = obj.getDouble("x").toFloat(),
+                            y = obj.getDouble("y").toFloat(),
+                            width = obj.getDouble("width").toFloat(),
+                            height = obj.getDouble("height").toFloat(),
+                        )
+                    )
+                }
+                // Update popup anchor to first rect for text avoidance
+                if (arr.length() > 0) {
+                    val first = arr.getJSONObject(0)
+                    lookupState = lookupState?.copy(
+                        anchorX = first.getDouble("x").toFloat(),
+                        anchorY = first.getDouble("y").toFloat(),
+                        anchorWidth = first.getDouble("width").toFloat(),
+                        anchorHeight = first.getDouble("height").toFloat(),
+                    )
+                }
+            } catch (_: Exception) {}
+
+            if (pendingShowByRects) {
+                pendingShowByRects = false
+                cancelActiveLookup()
+                popupVisible = true
+                isPopupActive = true
+            }
+        }
     }
 
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
@@ -238,7 +283,12 @@ class ChimaReaderActivity : NovelReaderActivity() {
      * can be set from the non-Composable [onLookupRequested] override.
      */
     private var lookupState by mutableStateOf<LookupState?>(null)
+    private var popupVisible by mutableStateOf(false)
     private var isVerticalWriting = true
+
+    /** Selection rects received from JS for Compose highlight overlay. */
+    private data class SelectionRect(val x: Float, val y: Float, val width: Float, val height: Float)
+    private val selectionRects = mutableStateListOf<SelectionRect>()
 
     private data class LookupState(
         val word: String,
@@ -252,6 +302,7 @@ class ChimaReaderActivity : NovelReaderActivity() {
     )
 
     private var lookupDeferred: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>? = null
+    private var pendingShowByRects = false
 
     /** Called by [NovelReaderActivity] whenever the user selects text in the WebView. */
     override fun onLookupRequested(word: String, sentence: String, x: Float, y: Float, w: Float, h: Float) {
@@ -260,8 +311,27 @@ class ChimaReaderActivity : NovelReaderActivity() {
         lookupDeferred = lifecycleScope.async(Dispatchers.Default) {
             Injekt.get<DictionaryRepository>().lookup(word.trim(), termPaths, profile.languageCode)
         }
-        lookupState = LookupState(word, sentence, x, y, w, h, isVerticalWriting, profile)
-        isPopupActive = true
+        // Set placeholder state; popup will be shown after matched word position is known
+        lookupState = LookupState(word, sentence, 0f, 0f, 0f, 0f, isVerticalWriting, profile)
+
+        lifecycleScope.launch(Dispatchers.Default) {
+            val result = try { lookupDeferred?.await() } catch (_: Exception) { null }
+            val firstMatched = result?.results?.firstOrNull()?.matched
+            if (firstMatched != null) {
+                val matchOffset = word.indexOf(firstMatched).coerceAtLeast(0)
+                val charCount = firstMatched.codePointCount(0, firstMatched.length)
+                withContext(Dispatchers.Main) {
+                    pendingShowByRects = true
+                    readerViewModel?.bridge?.send(com.canopus.chimareader.ui.reader.WebViewCommand.GetSelectionRects(charCount, matchOffset))
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    lookupState = lookupState?.copy(anchorX = x, anchorY = y, anchorWidth = w, anchorHeight = h)
+                    popupVisible = true
+                    isPopupActive = true
+                }
+            }
+        }
     }
 
     /** Legacy bridge hook; current reader JS sends the sentence with onLookupRequested. */
@@ -274,7 +344,8 @@ class ChimaReaderActivity : NovelReaderActivity() {
 
     override fun onDismissPopupRequested() {
         super.onDismissPopupRequested()
-        lookupState = null
+        popupVisible = false
+        selectionRects.clear()
         cancelActiveLookup()
         isPopupActive = false
     }
@@ -288,18 +359,22 @@ class ChimaReaderActivity : NovelReaderActivity() {
      * Injected into the parent's `setContent {}` via the [PopupOverlay] hook.
      * Renders the lookup popup over the reader content when text is selected.
      * No screenshot / crop — those are OCR-only features.
+     *
+     * The popup stays in composition permanently (warm shell) — it is hidden
+     * via alpha + offscreen offset when not active, never unmounted.  This
+     * keeps the WebView shell loaded and pageReady=true between lookups.
      */
     @Composable
     override fun PopupOverlay() {
-        val state = lookupState ?: return
+        // Always composed — use a default empty state when no lookup has happened yet
+        val state = lookupState ?: LookupState("", "", 0f, 0f, 0f, 0f, isVerticalWriting, chimahon.anki.AnkiProfile.EMPTY)
 
-        // Retain a single WebView + repository across re-compositions so the
-        // current lookup result isn't destroyed on every keystroke / recompose.
         val repo = remember { Injekt.get<DictionaryRepository>() }
         val webView = remember { ensurePopupWebView() }
 
-        BackHandler {
-            lookupState = null
+        BackHandler(enabled = popupVisible) {
+            popupVisible = false
+            selectionRects.clear()
             cancelActiveLookup()
             isPopupActive = false
         }
@@ -311,12 +386,15 @@ class ChimaReaderActivity : NovelReaderActivity() {
             )
         }
         eu.kanade.presentation.theme.TachiyomiTheme {
+            SelectionHighlightOverlay()
             OcrLookupPopup(
-                lookupString = state.word,
+                visible = popupVisible,
+                lookupString = if (popupVisible) state.word else "",
                 fullText = state.sentence,
                 charOffset = state.sentence.indexOf(state.word).coerceAtLeast(0),
                 onDismiss = {
-                    lookupState = null
+                    popupVisible = false
+                    selectionRects.clear()
                     cancelActiveLookup()
                     isPopupActive = false
                 },
@@ -327,16 +405,15 @@ class ChimaReaderActivity : NovelReaderActivity() {
                 anchorWidth = state.anchorWidth,
                 anchorHeight = state.anchorHeight,
                 isVertical = state.isVertical,
-                activeProfile = getOrRefreshLookupPaths().first,
+                activeProfile = if (popupVisible) getOrRefreshLookupPaths().first else chimahon.anki.AnkiProfile.EMPTY,
                 type = "novel",
-                // No screenshot — plain text selection only
                 mediaInfo = mediaInfo,
                 onRequestScreenshot = null,
                 onCropTriggered = null,
-                initialLookupDeferred = lookupDeferred,
+                initialLookupDeferred = if (popupVisible) lookupDeferred else null,
                 usePopup = false,
-                onTermMatched = { charCount ->
-                    readerViewModel?.bridge?.send(com.canopus.chimareader.ui.reader.WebViewCommand.HighlightSelection(charCount))
+                onTermMatched = { charCount, startOffset ->
+                    readerViewModel?.bridge?.send(com.canopus.chimareader.ui.reader.WebViewCommand.GetSelectionRects(charCount, startOffset))
                 },
                 modifier = Modifier,
             )
@@ -351,7 +428,27 @@ class ChimaReaderActivity : NovelReaderActivity() {
             webView.destroy()
         }
         popupWebView = null
-        // The retained WebView must be destroyed with the Activity to avoid leaks
         lookupState = null
+        selectionRects.clear()
+    }
+
+    /**
+     * Compose overlay that paints selection highlights from JS geometry.
+     */
+    @Composable
+    private fun SelectionHighlightOverlay() {
+        if (selectionRects.isEmpty()) return
+        val rects = selectionRects.toList()
+        val highlightColor = Color(0x66A0A0A0)
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            for (rect in rects) {
+                drawRect(
+                    color = highlightColor,
+                    topLeft = Offset(rect.x, rect.y),
+                    size = Size(rect.width, rect.height),
+                )
+            }
+        }
     }
 }
