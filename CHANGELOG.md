@@ -5,6 +5,13 @@ All notable changes to Chimahon are documented here.
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
 
+## [v1.7.6]
+
+### Fixed
+- Word audio continuing to play after dictionary popup is dismissed.
+- Word audio playing twice on lookup with autoplay enabled.
+
+
 ## [v1.7.5]
 
 ### Added

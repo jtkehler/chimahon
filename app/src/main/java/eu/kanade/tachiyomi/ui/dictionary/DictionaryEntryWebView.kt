@@ -619,6 +619,7 @@ private class DictionaryWebViewState(
     }
 
     fun clear(webView: WebView) {
+        wordAudioBridge.stopAudio()
         onContentInvalidated?.invoke()
         webView.evaluateJavascript("window.DictionaryRenderer && window.DictionaryRenderer.clear();", null)
     }
@@ -1137,4 +1138,8 @@ fun getDictionaryColorScheme(
         style = PaletteStyle.TonalSpot // Low-key, subtle gradient
     )
     return baseScheme.getColorScheme(isDark, isAmoled, false)
+}
+
+internal fun stopDictionaryAudio(webView: WebView) {
+    (webView.tag as? DictionaryWebViewState)?.wordAudioBridge?.stopAudio()
 }

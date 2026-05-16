@@ -14,6 +14,7 @@
   let _pendingPopupSelection = '';
   let _selectedDictionaries = {}; // entryIndex -> dictName
   let _wordAudioEnabled = true;
+  let _autoplayGuard = false;
   let _listenersInstalled = false;
   let _lastAnkiDupAction = -1; // -1 = unknown/not set
   const HAS_NATIVE_SCOPE = (() => {
@@ -2273,6 +2274,7 @@
       const started = performance.now();
       const root = document.documentElement;
       _wordAudioEnabled = payload.wordAudioEnabled !== false;
+      _autoplayGuard = false;
       _selectedDictionaries = {};
       if (payload.ankiDupAction !== undefined) {
         _lastAnkiDupAction = payload.ankiDupAction;
@@ -2437,7 +2439,8 @@
           window.scrollTo(0, 0);
         }
 
-        if (payload.wordAudioAutoplay) {
+        if (payload.wordAudioAutoplay && !_autoplayGuard) {
+          _autoplayGuard = true;
           const firstBtn = container.querySelector('.word-audio-btn');
           if (firstBtn) firstBtn.click();
         }
@@ -2457,6 +2460,7 @@
   }
 
   function clear() {
+    _autoplayGuard = false;
     const container = document.getElementById('entries');
     if (container) container.textContent = '';
     _tabsEl = null;

@@ -55,6 +55,7 @@ import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.TabInfo
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
+import eu.kanade.tachiyomi.ui.dictionary.stopDictionaryAudio
 import eu.kanade.tachiyomi.util.system.toast
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -573,6 +574,10 @@ fun OcrLookupPopup(
     val actualWidthDp = with(density) { layoutResult.widthPx.toDp() }
     val actualHeightDp = with(density) { layoutResult.heightPx.toDp() }
 
+
+    LaunchedEffect(visible) {
+        if (!visible) stopDictionaryAudio(webView)
+    }
 
     LaunchedEffect(lookupString, ankiEnabled, ankiModel, visible) {
         if (!visible) return@LaunchedEffect
