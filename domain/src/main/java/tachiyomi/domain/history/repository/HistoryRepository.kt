@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import tachiyomi.domain.history.model.History
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.history.model.HistoryWithRelations
+import tachiyomi.domain.history.model.ReadingSession
 
 interface HistoryRepository {
 
@@ -37,4 +38,10 @@ interface HistoryRepository {
     // SY -->
     suspend fun upsertHistory(historyUpdates: List<HistoryUpdate>)
     // SY <--
+
+    suspend fun insertSession(session: ReadingSession)
+
+    suspend fun getAllSessions(): List<ReadingSession>
+
+    suspend fun getLibrarySessions(): List<ReadingSession>
 }

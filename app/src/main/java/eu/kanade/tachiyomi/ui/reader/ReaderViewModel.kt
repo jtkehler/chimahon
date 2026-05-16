@@ -110,6 +110,8 @@ import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.history.interactor.GetNextChapters
 import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
+import tachiyomi.domain.history.model.ReadingSession
+import tachiyomi.domain.history.repository.HistoryRepository
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetFlatMetadataById
 import tachiyomi.domain.manga.interactor.GetManga
@@ -146,6 +148,7 @@ class ReaderViewModel @JvmOverloads constructor(
     private val getChaptersByMangaId: GetChaptersByMangaId = Injekt.get(),
     private val getNextChapters: GetNextChapters = Injekt.get(),
     private val upsertHistory: UpsertHistory = Injekt.get(),
+    private val historyRepository: HistoryRepository = Injekt.get(),
     private val updateChapter: UpdateChapter = Injekt.get(),
     private val setMangaViewerFlags: SetMangaViewerFlags = Injekt.get(),
     private val getIncognitoState: GetIncognitoState = Injekt.get(),
@@ -978,7 +981,10 @@ class ReaderViewModel @JvmOverloads constructor(
             val endTime = Date()
             val sessionReadDuration = chapterReadStartTime?.let { endTime.time - it } ?: 0
 
-            upsertHistory.await(HistoryUpdate(chapterId, endTime, sessionReadDuration))
+            if (sessionReadDuration > 0) {
+                upsertHistory.await(HistoryUpdate(chapterId, endTime, sessionReadDuration))
+                historyRepository.insertSession(ReadingSession(0, chapterId, endTime, sessionReadDuration))
+            }
             chapterReadStartTime = null
         }
     }
@@ -2272,7 +2278,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 if (blocks.isNotEmpty()) {
                     val chars = blocks.sumOf { block -> block.fullText.length }
                     if (chars > 0) {
-                        com.canopus.chimareader.data.MangaStatsStorage.addStats(application, chars, timeSpent)
+                        com.canopus.chimareader.data.MangaStatsStorage.addStats(application, chars, timeSpent, manga?.id ?: 0)
                     }
                 }
             }

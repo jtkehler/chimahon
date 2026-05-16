@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.update
 import tachiyomi.domain.history.interactor.GetAllHistory
 import tachiyomi.domain.history.interactor.GetTotalReadDuration
 import tachiyomi.domain.history.model.History
+import tachiyomi.domain.history.model.ReadingSession
+import tachiyomi.domain.history.repository.HistoryRepository
 import tachiyomi.domain.library.model.LibraryManga
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MANGA_HAS_UNREAD
@@ -50,6 +52,7 @@ class StatsScreenModel(
     private val getLibraryManga: GetLibraryManga = Injekt.get(),
     private val getTotalReadDuration: GetTotalReadDuration = Injekt.get(),
     private val getAllHistory: GetAllHistory = Injekt.get(),
+    private val historyRepository: HistoryRepository = Injekt.get(),
     private val getTracks: GetTracks = Injekt.get(),
     private val preferences: LibraryPreferences = Injekt.get(),
     private val trackerManager: TrackerManager = Injekt.get(),
@@ -88,7 +91,12 @@ class StatsScreenModel(
             }
 
             val allMangaHistory = getAllHistory.await()
-            val filteredMangaHistory = filterHistoryByScale(allMangaHistory, dateScale, dateOffset)
+            val allSessions = if (allRead) {
+                historyRepository.getAllSessions()
+            } else {
+                historyRepository.getLibrarySessions()
+            }
+            val filteredSessions = filterSessionsByScale(allSessions, dateScale, dateOffset)
             
             val allNovels = if (statsType == StatsType.All || statsType == StatsType.Novels) {
                 BookStorage.loadAllBooks(context)
@@ -104,7 +112,7 @@ class StatsScreenModel(
             val allNovelStatsList = novelStats.values.flatten()
             val filteredNovelStats = filterNovelStatsByScale(allNovelStatsList, dateScale, dateOffset)
 
-            val mangaReadDuration = filteredMangaHistory.sumOf { it.readDuration }
+            val mangaReadDuration = filteredSessions.sumOf { it.duration }
             val novelReadDurationSeconds = filteredNovelStats.sumOf { it.readingTime }
             val novelReadDurationMs = (novelReadDurationSeconds * 1000).toLong()
             
@@ -115,7 +123,9 @@ class StatsScreenModel(
             }
 
             val allMangaStats = com.canopus.chimareader.data.MangaStatsStorage.loadAll(context)
-            val filteredMangaStats = filterMangaStatsByScale(allMangaStats, dateScale, dateOffset)
+            val libraryMangaIds = distinctLibraryManga.map { it.id }.toSet()
+            val libraryFilteredMangaStats = if (allRead) allMangaStats else allMangaStats.filter { it.mangaId in libraryMangaIds || it.mangaId == 0L }
+            val filteredMangaStats = filterMangaStatsByScale(libraryFilteredMangaStats, dateScale, dateOffset)
 
             val mangaChars = filteredMangaStats.sumOf { it.charactersRead }
             val mangaTimeMs = filteredMangaStats.sumOf { it.readingTime }
@@ -140,7 +150,7 @@ class StatsScreenModel(
             } else null
 
             val streak = calculateStreak(allMangaHistory, allNovelStatsList)
-            val historyPoints = calculateHistoryPoints(allMangaHistory, allNovelStatsList, dateScale, dateOffset)
+            val historyPoints = calculateHistoryPoints(allSessions, allNovelStatsList, dateScale, dateOffset)
             
             // Calculate avg per day
             val avgDurationPerDay = if (dateScale != StatsDateScale.Day && dateScale != StatsDateScale.AllTime) {
@@ -263,15 +273,14 @@ class StatsScreenModel(
         }
     }
 
-    private fun filterHistoryByScale(history: List<History>, scale: StatsDateScale, offset: Int): List<History> {
-        if (scale == StatsDateScale.AllTime) return history
+    private fun filterSessionsByScale(sessions: List<ReadingSession>, scale: StatsDateScale, offset: Int): List<ReadingSession> {
+        if (scale == StatsDateScale.AllTime) return sessions
         val (start, end) = getDateRange(scale, offset)
         val startMillis = start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val endMillis = end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        
-        return history.filter { 
-            val readAt = it.readAt?.time ?: 0
-            readAt in startMillis until endMillis
+
+        return sessions.filter {
+            it.readAt.time in startMillis until endMillis
         }
     }
 
@@ -402,7 +411,7 @@ class StatsScreenModel(
     }
 
     private fun calculateHistoryPoints(
-        mangaHistory: List<History>,
+        mangaSessions: List<ReadingSession>,
         novelStats: List<Statistics>,
         scale: StatsDateScale,
         offset: Int,
@@ -417,7 +426,7 @@ class StatsScreenModel(
                 (0..6).map { daysIntoWeek ->
                     val date = weekStart.plusDays(daysIntoWeek.toLong())
                     val label = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                    val value = aggregateForDate(date, mangaHistory, novelStats)
+                    val value = aggregateForDate(date, mangaSessions, novelStats)
                     val pOffset = ChronoUnit.DAYS.between(now, date).toInt()
                     StatsData.HistoryPoint(label, value, pOffset)
                 }
@@ -437,7 +446,7 @@ class StatsScreenModel(
                     val wStart = firstMonday.plusWeeks(weeksIntoMonth.toLong())
                     val wEnd = wStart.plusDays(6)
                     val label = "W${wStart.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}"
-                    val value = aggregateForRange(wStart, wEnd, mangaHistory, novelStats)
+                    val value = aggregateForRange(wStart, wEnd, mangaSessions, novelStats)
                     val pOffset = ChronoUnit.WEEKS.between(
                         now.with(DayOfWeek.MONDAY),
                         wStart
@@ -451,7 +460,7 @@ class StatsScreenModel(
                 (0..11).map { monthsIntoYear ->
                     val mDate = yearStart.plusMonths(monthsIntoYear.toLong())
                     val label = mDate.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                    val value = aggregateForMonth(mDate, mangaHistory, novelStats)
+                    val value = aggregateForMonth(mDate, mangaSessions, novelStats)
                     val pOffset = ChronoUnit.MONTHS.between(
                         now.withDayOfMonth(1),
                         mDate.withDayOfMonth(1)
@@ -465,7 +474,7 @@ class StatsScreenModel(
                     val label = yDate.year.toString()
                     val yStart = yDate.withDayOfYear(1)
                     val yEnd = yDate.withDayOfYear(yDate.lengthOfYear())
-                    val value = aggregateForRange(yStart, yEnd, mangaHistory, novelStats)
+                    val value = aggregateForRange(yStart, yEnd, mangaSessions, novelStats)
                     val pOffset = -yearsAgo
                     StatsData.HistoryPoint(label, value, pOffset)
                 }
@@ -475,59 +484,56 @@ class StatsScreenModel(
 
     private fun aggregateForDate(
         date: LocalDate,
-        mangaHistory: List<History>,
+        mangaSessions: List<ReadingSession>,
         novelStats: List<Statistics>,
     ): Long {
         val startMillis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val endMillis = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        
-        val mangaValue = mangaHistory
-            .filter { h -> (h.readAt?.time ?: 0) in startMillis until endMillis }
-            .sumOf { it.readDuration }
-        
+
+        val mangaValue = mangaSessions
+            .filter { it.readAt.time in startMillis until endMillis }
+            .sumOf { it.duration }
+
         val dateKey = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
         val novelValue = novelStats
             .filter { it.dateKey == dateKey }
             .sumOf { (it.readingTime * 1000).toLong() }
-            
+
         return mangaValue + novelValue
     }
 
     private fun aggregateForRange(
         start: LocalDate,
         end: LocalDate,
-        mangaHistory: List<History>,
+        mangaSessions: List<ReadingSession>,
         novelStats: List<Statistics>,
     ): Long {
         val startMillis = start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val endMillis = end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        
-        val mangaValue = mangaHistory
-            .filter { h -> (h.readAt?.time ?: 0) in startMillis until endMillis }
-            .sumOf { it.readDuration }
-        
+
+        val mangaValue = mangaSessions
+            .filter { it.readAt.time in startMillis until endMillis }
+            .sumOf { it.duration }
+
         val startStr = start.toString()
         val endStr = end.toString()
         val novelValue = novelStats
             .filter { it.dateKey in startStr..endStr }
             .sumOf { (it.readingTime * 1000).toLong() }
-            
+
         return mangaValue + novelValue
     }
 
     private fun aggregateForMonth(
         monthDate: LocalDate,
-        mangaHistory: List<History>,
+        mangaSessions: List<ReadingSession>,
         novelStats: List<Statistics>,
     ): Long {
         val yearMonth = YearMonth.from(monthDate)
-        val mangaValue = mangaHistory
-            .filter { h ->
-                val readAt = h.readAt?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDate()
-                readAt != null && YearMonth.from(readAt) == yearMonth
-            }
-            .sumOf { it.readDuration }
-        
+        val mangaValue = mangaSessions
+            .filter { YearMonth.from(it.readAt.toInstant().atZone(ZoneId.systemDefault()).toLocalDate()) == yearMonth }
+            .sumOf { it.duration }
+
         val novelValue = novelStats
             .filter { s ->
                 try {
@@ -538,7 +544,7 @@ class StatsScreenModel(
                 }
             }
             .sumOf { (it.readingTime * 1000).toLong() }
-            
+
         return mangaValue + novelValue
     }
 }
