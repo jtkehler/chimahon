@@ -36,6 +36,7 @@ enum class ActiveSheet {
 fun ReaderScreen(
     book: BookMetadata,
     onBack: () -> Unit,
+    showHud: Boolean = false,
     onShowHudChanged: (Boolean) -> Unit = {},
     onThemeChanged: (backgroundColor: Int) -> Unit = {},
     onLookupRequested: (String, String, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _ -> },
@@ -188,13 +189,6 @@ fun ReaderScreen(
                         }
                     }
 
-                    // HUD visibility state - toggled by edge taps
-                    var showHud by remember { mutableStateOf(false) }
-
-                    LaunchedEffect(showHud) {
-                        onShowHudChanged(showHud)
-                    }
-
                     val tapZonePx = with(density) { 64.dp.toPx() }.toInt()
 
                     // Single WebView handles all chapters
@@ -216,8 +210,8 @@ fun ReaderScreen(
                         onProgressChanged = { viewModel.saveBookmark(it) },
                         onLoadFailed = { },
                         onTap = { if (focusMode) focusMode = false },
-                        onTapTop = { showHud = !showHud },
-                        onTapBottom = { showHud = !showHud },
+                        onTapTop = { onShowHudChanged(!showHud) },
+                        onTapBottom = { onShowHudChanged(!showHud) },
                         swipeThreshold = chapterSwipeDistance,
                         tapZonePx = tapZonePx,
                         isPopupActive = isPopupActive,
@@ -238,7 +232,7 @@ fun ReaderScreen(
                         ReaderTopBar(
                             title = viewModel.document.title().orEmpty(),
                             onBack = onBack,
-                            onToggleHud = { showHud = false },
+                            onToggleHud = { onShowHudChanged(false) },
                             backgroundColor = currentSettings.backgroundColor,
                             contentColor = currentSettings.textColor,
                             modifier = Modifier
@@ -251,14 +245,16 @@ fun ReaderScreen(
                         visible = showHud,
                         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                        modifier = Modifier.align(Alignment.BottomCenter)
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
                     ) {
                         ReaderBottomBar(
                             focusMode = focusMode,
                             progressText = "${(viewModel.currentProgress * 100).toInt()}%",
                             backgroundColor = currentSettings.backgroundColor,
                             contentColor = currentSettings.textColor,
-                            onToggleHud = { showHud = false },
+                            onToggleHud = { onShowHudChanged(false) },
                             onToggleFocusMode = { focusMode = true },
                             onOpenChapters = { activeSheet = ActiveSheet.Chapters },
                             onOpenAppearance = { activeSheet = ActiveSheet.Appearance },

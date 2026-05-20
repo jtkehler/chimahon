@@ -46,7 +46,7 @@ open class NovelReaderActivity : ComponentActivity() {
 
     protected var readerViewModel by androidx.compose.runtime.mutableStateOf<ReaderViewModel?>(null)
     protected var bookMetadata: BookMetadata? = null
-    private var isHudVisible = false
+    protected var showHud by androidx.compose.runtime.mutableStateOf(false)
 
     protected open fun handleVolumeKey(forward: Boolean): Boolean {
         val vm = readerViewModel ?: return false
@@ -56,11 +56,20 @@ open class NovelReaderActivity : ComponentActivity() {
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (isPopupActive) return super.onKeyDown(keyCode, event)
+
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+            android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+            android.view.KeyEvent.KEYCODE_PAGE_UP, android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+            android.view.KeyEvent.KEYCODE_MENU -> return true
+        }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (isPopupActive) return super.onKeyUp(keyCode, event)
+
+        val ctrlPressed = (event?.metaState?.and(android.view.KeyEvent.META_CTRL_ON) ?: 0) > 0
 
         when (keyCode) {
             android.view.KeyEvent.KEYCODE_VOLUME_UP -> {
@@ -70,11 +79,40 @@ open class NovelReaderActivity : ComponentActivity() {
                 if (handleVolumeKey(true)) return true
             }
             android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_PAGE_UP -> {
-                handleVolumeKey(false)
+                readerViewModel?.bridge?.paginate(false)
                 return true
             }
             android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_PAGE_DOWN -> {
-                handleVolumeKey(true)
+                readerViewModel?.bridge?.paginate(true)
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (ctrlPressed) {
+                    readerViewModel?.previousChapter()
+                } else {
+                    readerViewModel?.bridge?.paginate(false)
+                }
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (ctrlPressed) {
+                    readerViewModel?.nextChapter()
+                } else {
+                    readerViewModel?.bridge?.paginate(true)
+                }
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_N -> {
+                readerViewModel?.nextChapter()
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_P -> {
+                readerViewModel?.previousChapter()
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_MENU -> {
+                showHud = !showHud
+                setSystemBarsVisibility(showHud)
                 return true
             }
         }
@@ -137,9 +175,10 @@ open class NovelReaderActivity : ComponentActivity() {
             Box(Modifier.fillMaxSize()) {
                 ReaderScreen(
                     book = metadata,
+                    showHud = showHud,
                     onBack = { finish() },
                     onShowHudChanged = { visible ->
-                        isHudVisible = visible
+                        showHud = visible
                         setSystemBarsVisibility(visible)
                     },
                     onThemeChanged = { bgColor -> updateSystemBarsTheme(bgColor) },
@@ -159,22 +198,23 @@ open class NovelReaderActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Re-apply visibility state based on HUD status
-        setSystemBarsVisibility(isHudVisible)
+        setSystemBarsVisibility(showHud)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            setSystemBarsVisibility(isHudVisible)
+            setSystemBarsVisibility(showHud)
         }
     }
 
     private fun setSystemBarsVisibility(visible: Boolean) {
         val windowInsetsController = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
-        // Always keep system bars hidden in the novel reader for an immersive experience.
-        // Toggling the HUD should not force the system bars to show.
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        if (visible) {
+            windowInsetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
         windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 
