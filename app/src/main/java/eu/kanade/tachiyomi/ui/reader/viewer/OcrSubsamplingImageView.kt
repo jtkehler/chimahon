@@ -13,6 +13,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import java.util.Locale
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.Pager
 import kotlin.math.abs
@@ -99,6 +100,12 @@ class OcrSubsamplingImageView(
 
         // Guard 3: no blocks to draw
         if (host.ocrBlocks.isEmpty()) return
+
+        // Apply locale from first block's language for proper CJK glyph rendering
+        val blockLang = host.ocrBlocks.firstOrNull()?.language
+        if (!blockLang.isNullOrEmpty()) {
+            textPaint.setTextLocale(Locale.forLanguageTag(blockLang))
+        }
 
         // Draw all blocks: borders always visible, text only if active
         for (block in host.ocrBlocks) {

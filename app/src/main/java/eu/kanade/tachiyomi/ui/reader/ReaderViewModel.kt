@@ -1779,7 +1779,8 @@ class ReaderViewModel @JvmOverloads constructor(
                 if (ocrCache.containsKey(cacheKey)) return@withLock
             }
 
-            getMokuroBlocksForPage(chapterData, pageIndex)?.let { blocks ->
+            getMokuroBlocksForPage(chapterData, pageIndex)?.let { rawBlocks ->
+                val blocks = rawBlocks.map { it.copy(language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47) }
                 ocrCacheMutex.withLock {
                     ocrCache[cacheKey] = blocks
                     while (ocrCache.size > maxOcrCacheEntries) {
@@ -1803,6 +1804,7 @@ class ReaderViewModel @JvmOverloads constructor(
                             lineGeometries = it.lineGeometries?.map { lg ->
                                 chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
                             },
+                            language = it.language,
                         )
                     },
                     language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47,
@@ -1995,7 +1997,8 @@ class ReaderViewModel @JvmOverloads constructor(
         }
 
         if (source.isLocal()) {
-            tryLoadMokuroBlocks(manga, domainChapter, source, page.index)?.let { blocks ->
+            tryLoadMokuroBlocks(manga, domainChapter, source, page.index)?.let { rawBlocks ->
+                val blocks = rawBlocks.map { it.copy(language = ocrLang.bcp47) }
                 ocrCacheMutex.withLock {
                     ocrCache[cacheKey] = blocks
                     while (ocrCache.size > maxOcrCacheEntries) {
@@ -2019,6 +2022,7 @@ class ReaderViewModel @JvmOverloads constructor(
                             lineGeometries = it.lineGeometries?.map { lg ->
                                 chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
                             },
+                            language = it.language,
                         )
                     },
                     language = ocrLang.bcp47,
@@ -2041,7 +2045,9 @@ class ReaderViewModel @JvmOverloads constructor(
 
         val mokuroUrl = buildMokuroExtensionUrl(manga, domainChapter, source)
         if (mokuroUrl != null) {
-            tryLoadMokuroFromUrl(mokuroUrl, manga, domainChapter, source, page.index, page.chapter.pages?.size ?: 0)?.let { blocks ->
+            tryLoadMokuroFromUrl(mokuroUrl, manga, domainChapter, source, page.index, page.chapter.pages?.size ?: 0)?.let { rawBlocks ->
+                val mokuroLang = chimahon.ocr.OcrLanguage.JAPANESE.bcp47
+                val blocks = rawBlocks.map { it.copy(language = mokuroLang) }
                 ocrCacheMutex.withLock {
                     ocrCache[cacheKey] = blocks
                     while (ocrCache.size > maxOcrCacheEntries) {
@@ -2065,9 +2071,10 @@ class ReaderViewModel @JvmOverloads constructor(
                             lineGeometries = it.lineGeometries?.map { lg ->
                                 chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
                             },
+                            language = it.language,
                         )
                     },
-                    language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47,
+                    language = mokuroLang,
                 )
                 val elapsedMs = SystemClock.elapsedRealtime() - startMs
                 logcat { "OCR mokuro extension fetch: chapter=$chapterId page=${page.index} blocks=${blocks.size} time=${elapsedMs}ms" }
@@ -2131,6 +2138,7 @@ class ReaderViewModel @JvmOverloads constructor(
                         lines = result.text.split("\n").filter { it.isNotBlank() },
                         vertical = result.forcedOrientation == "vertical",
                         lineGeometries = lineGeometries,
+                        language = ocrLang.bcp47,
                     )
                 }
             }
@@ -2151,6 +2159,7 @@ class ReaderViewModel @JvmOverloads constructor(
                         lineGeometries = it.lineGeometries?.map { lg ->
                             chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
                         },
+                        language = it.language,
                     )
                 },
                 language = ocrLang.bcp47,
@@ -2299,5 +2308,6 @@ private fun chimahon.ocr.OcrTextBlock.toViewerBlock(): eu.kanade.tachiyomi.ui.re
         lineGeometries = lineGeometries?.map { lg ->
             eu.kanade.tachiyomi.ui.reader.viewer.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
         },
+        language = language,
     )
 }

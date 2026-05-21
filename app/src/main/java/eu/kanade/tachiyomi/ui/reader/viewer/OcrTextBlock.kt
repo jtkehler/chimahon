@@ -22,6 +22,7 @@ data class OcrTextBlock(
     val lines: List<String>,
     val vertical: Boolean = false,
     val lineGeometries: List<OcrLineGeometry>? = null,
+    val language: String = "",
 )
 
 /**
