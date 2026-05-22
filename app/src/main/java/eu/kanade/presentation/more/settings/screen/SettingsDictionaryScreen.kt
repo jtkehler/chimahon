@@ -1003,8 +1003,8 @@ object SettingsDictionaryScreen : SearchableSettings {
         val dictListState = rememberLazyListState()
         val dictNamesState = remember(filteredOrderedDicts) { filteredOrderedDicts.toMutableStateList() }
         val reorderableState = rememberReorderableLazyListState(dictListState) { from, to ->
-            val fromIdx = from.index - 1
-            val toIdx = to.index - 1
+            val fromIdx = from.index - 3
+            val toIdx = to.index - 3
             if (fromIdx in dictNamesState.indices && toIdx in dictNamesState.indices) {
                 val item = dictNamesState.removeAt(fromIdx)
                 dictNamesState.add(toIdx, item)
