@@ -111,6 +111,7 @@ import uy.kohesive.injekt.api.get
 import tachiyomi.core.common.util.lang.withUIContext
 import logcat.logcat
 import logcat.LogPriority
+import eu.kanade.presentation.reader.stats.MangaStatsSheet
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
@@ -467,6 +468,18 @@ class ReaderActivity : BaseActivity() {
                 ContentOverlay(state = state)
 
                 AppBars(state = state)
+            }
+
+            if (viewModel.showMangaStats) {
+                MangaStatsSheet(
+                    context = context,
+                    mangaId = viewModel.manga!!.id,
+                    sessionCharacters = viewModel.mangaStatsSessionCharacters,
+                    sessionTimeMs = viewModel.mangaStatsSessionTimeMs,
+                    isTracking = viewModel.mangaStatsTracking,
+                    onToggleTracking = viewModel::toggleMangaStatsTracking,
+                    onDismiss = viewModel::closeMangaStatsSheet,
+                )
             }
 
             // KMK -->
@@ -1071,6 +1084,7 @@ class ReaderActivity : BaseActivity() {
                 )
             },
             onClickSettings = viewModel::openSettingsDialog,
+            onClickMangaStats = viewModel::openMangaStatsSheet,
             // SY -->
             isExhToolsVisible = state.ehUtilsVisible,
             onSetExhUtilsVisibility = viewModel::showEhUtils,

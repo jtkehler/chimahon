@@ -42,6 +42,7 @@
     <string name="action_reset_reading_progress">Reset reading progress</string>
     <string name="backup_option_novels">Novel progress &amp; stats</string>
     <string name="label_stats">Statistics</string>
+    <string name="action_manga_stats">Statistics</string>
     <string name="label_migration">Migrate</string>
     <string name="label_extensions">Extensions</string>
     <string name="label_extension_info">Extension info</string>

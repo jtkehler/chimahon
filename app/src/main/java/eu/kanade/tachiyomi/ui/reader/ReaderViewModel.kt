@@ -8,6 +8,9 @@ import android.os.SystemClock
 import androidx.annotation.ColorInt
 import androidx.annotation.IntRange
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -225,6 +228,15 @@ class ReaderViewModel @JvmOverloads constructor(
 
     private var lastMangaStatsTime: Long = SystemClock.elapsedRealtime()
     private var currentMangaStatsPage: ReaderPage? = null
+
+    var mangaStatsSessionCharacters: Int = 0
+        private set
+    var mangaStatsSessionTimeMs: Long = 0
+        private set
+    var mangaStatsTracking by mutableStateOf(true)
+        private set
+    var showMangaStats by mutableStateOf(false)
+        private set
 
     // KMK -->
     fun handleDownloadAction(chapter: Chapter, action: ChapterDownloadAction) {
@@ -1200,6 +1212,18 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun openChapterListDialog() {
         mutableState.update { it.copy(dialog = Dialog.ChapterList) }
+    }
+
+    fun openMangaStatsSheet() {
+        showMangaStats = true
+    }
+
+    fun closeMangaStatsSheet() {
+        showMangaStats = false
+    }
+
+    fun toggleMangaStatsTracking() {
+        mangaStatsTracking = !mangaStatsTracking
     }
 
     fun setDoublePages(doublePages: Boolean) {
@@ -2287,6 +2311,10 @@ class ReaderViewModel @JvmOverloads constructor(
                     val chars = blocks.sumOf { block -> block.fullText.length }
                     if (chars > 0) {
                         com.canopus.chimareader.data.MangaStatsStorage.addStats(application, chars, timeSpent, manga?.id ?: 0)
+                        if (mangaStatsTracking) {
+                            mangaStatsSessionCharacters += chars
+                            mangaStatsSessionTimeMs += timeSpent
+                        }
                     }
                 }
             }
