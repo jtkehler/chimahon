@@ -31,6 +31,8 @@ class ReaderPreferences(
 
     fun flashColor() = preferenceStore.getEnum("pref_reader_flash_mode", FlashColor.BLACK)
 
+    fun eInkSwipeSensitivity() = preferenceStore.getBoolean("pref_reader_eink_swipe", false)
+
     fun doubleTapAnimSpeed() = preferenceStore.getInt("pref_double_tap_anim_speed", 500)
 
     fun showPageNumber() = preferenceStore.getBoolean("pref_show_page_number_key", true)

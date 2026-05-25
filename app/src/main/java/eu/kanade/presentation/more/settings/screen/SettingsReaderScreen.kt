@@ -225,6 +225,11 @@ object SettingsReaderScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_flash_with),
                     enabled = flashPageState,
                 ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.eInkSwipeSensitivity(),
+                    title = "Reduce swipe sensitivity",
+                    subtitle = "Lowers swipe thresholds for better e-ink compatibility",
+                ),
             ),
         )
     }

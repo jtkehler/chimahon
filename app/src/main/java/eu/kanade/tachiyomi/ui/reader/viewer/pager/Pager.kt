@@ -6,9 +6,13 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import androidx.viewpager.widget.DirectionalViewPager
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.GestureDetectorWithLongTap
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 /**
  * Pager implementation that listens for tap and long tap and allows temporarily disabling touch
@@ -67,6 +71,27 @@ open class Pager(
      * Gesture detector which handles motion events.
      */
     private val gestureDetector = GestureDetectorWithLongTap(context, gestureListener)
+
+    init {
+        if (Injekt.get<ReaderPreferences>().eInkSwipeSensitivity().get()) {
+            reduceSwipeThresholds()
+        }
+    }
+
+    private fun reduceSwipeThresholds() {
+        try {
+            val density = resources.displayMetrics.density
+            val ctx = context
+            val clazz = DirectionalViewPager::class.java
+            val touchSlop = clazz.getDeclaredField("mTouchSlop").apply { isAccessible = true }
+            touchSlop.setInt(this, ViewConfiguration.get(ctx).scaledTouchSlop)
+            val minVel = clazz.getDeclaredField("mMinimumVelocity").apply { isAccessible = true }
+            minVel.setInt(this, (200 * density).toInt())
+            val flingDist = clazz.getDeclaredField("mFlingDistance").apply { isAccessible = true }
+            flingDist.setInt(this, (12 * density).toInt())
+        } catch (_: Exception) {
+        }
+    }
 
     override fun addView(child: View?, index: Int, params: ViewGroup.LayoutParams?) {
         if (child == null) return
