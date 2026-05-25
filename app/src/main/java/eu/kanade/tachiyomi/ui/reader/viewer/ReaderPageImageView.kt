@@ -245,6 +245,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             is SubsamplingScaleImageView -> it.recycle()
             is AppCompatImageView -> it.dispose()
         }
+        removeView(it)
         it.isVisible = false
     }
 
@@ -368,7 +369,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private fun prepareNonAnimatedImageView() {
         if (pageView is SubsamplingScaleImageView) return
-        removeView(pageView)
+        pageView?.let { removeView(it) }
 
         pageView = OcrSubsamplingImageView(context).also {
             it.ocrHost = this@ReaderPageImageView
@@ -488,7 +489,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private fun prepareAnimatedImageView() {
         if (pageView is AppCompatImageView) return
-        removeView(pageView)
+        pageView?.let { removeView(it) }
 
         pageView = if (isWebtoon) {
             AppCompatImageView(context)

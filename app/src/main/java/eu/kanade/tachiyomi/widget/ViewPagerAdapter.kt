@@ -12,7 +12,7 @@ abstract class ViewPagerAdapter : PagerAdapter() {
     }
 
     override fun instantiateItem(container: ViewGroup, position: Int): Any {
-        val view = createView(container, position)
+        val view = checkNotNull(createView(container, position))
         container.addView(view)
         return view
     }

@@ -5,6 +5,8 @@ import android.os.Parcelable
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import androidx.viewpager.widget.DirectionalViewPager
 import eu.kanade.tachiyomi.ui.reader.viewer.GestureDetectorWithLongTap
 
@@ -65,6 +67,11 @@ open class Pager(
      * Gesture detector which handles motion events.
      */
     private val gestureDetector = GestureDetectorWithLongTap(context, gestureListener)
+
+    override fun addView(child: View?, index: Int, params: ViewGroup.LayoutParams?) {
+        if (child == null) return
+        super.addView(child, index, params)
+    }
 
     /**
      * Whether the gesture detector is currently enabled.

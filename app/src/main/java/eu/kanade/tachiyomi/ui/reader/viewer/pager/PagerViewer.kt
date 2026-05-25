@@ -9,7 +9,6 @@ import android.view.ViewGroup.LayoutParams
 import android.webkit.WebView
 import androidx.annotation.ColorInt
 import androidx.core.view.children
-import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.viewpager.widget.ViewPager
 import chimahon.DictionaryRepository
@@ -344,7 +343,7 @@ abstract class PagerViewer(
         adapter.setChapters(chapters, forceTransition)
 
         // Layout the pager once a chapter is being set
-        if (pager.isGone) {
+        if (!pager.isVisible) {
             logcat { "Pager first layout" }
             val pages = chapters.currChapter.pages ?: return
             moveToPage(pages[min(chapters.currChapter.requestedPage, pages.lastIndex)])
