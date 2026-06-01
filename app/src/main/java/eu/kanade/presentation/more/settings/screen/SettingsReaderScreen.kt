@@ -231,8 +231,8 @@ object SettingsReaderScreen : SearchableSettings {
                 ),
                 Preference.PreferenceItem.SwitchPreference(
                     preference = readerPreferences.eInkSwipeSensitivity(),
-                    title = "Reduce swipe sensitivity",
-                    subtitle = "Lowers swipe thresholds for better e-ink compatibility",
+                    title = "E-Ink swipe",
+                    subtitle = "Disables page transition animations and lowers swipe thresholds for e-ink displays",
                 ),
             ),
         )

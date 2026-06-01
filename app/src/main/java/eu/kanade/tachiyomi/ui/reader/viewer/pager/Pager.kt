@@ -6,6 +6,7 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.widget.Scroller
 import androidx.viewpager.widget.DirectionalViewPager
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.GestureDetectorWithLongTap
@@ -73,6 +74,15 @@ open class Pager(
     init {
         if (Injekt.get<ReaderPreferences>().eInkSwipeSensitivity().get()) {
             reduceSwipeThresholds()
+            try {
+                DirectionalViewPager::class.java
+                    .getDeclaredField("mScroller").apply { isAccessible = true }
+                    .set(this, object : Scroller(context) {
+                        override fun startScroll(startX: Int, startY: Int, dx: Int, dy: Int, duration: Int) {
+                            super.startScroll(startX, startY, dx, dy, 0)
+                        }
+                    })
+            } catch (_: Exception) {}
         }
     }
 
@@ -82,11 +92,11 @@ open class Pager(
             val ctx = context
             val clazz = DirectionalViewPager::class.java
             val touchSlop = clazz.getDeclaredField("mTouchSlop").apply { isAccessible = true }
-            touchSlop.setInt(this, ViewConfiguration.get(ctx).scaledTouchSlop)
+            touchSlop.setInt(this, ViewConfiguration.get(ctx).scaledTouchSlop / 2)
             val minVel = clazz.getDeclaredField("mMinimumVelocity").apply { isAccessible = true }
-            minVel.setInt(this, (200 * density).toInt())
+            minVel.setInt(this, (75 * density).toInt())
             val flingDist = clazz.getDeclaredField("mFlingDistance").apply { isAccessible = true }
-            flingDist.setInt(this, (12 * density).toInt())
+            flingDist.setInt(this, (4 * density).toInt())
         } catch (_: Exception) {
         }
     }
