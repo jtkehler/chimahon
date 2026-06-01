@@ -112,6 +112,8 @@ class ReaderPreferences(
     fun ocrOutlineVisible() = preferenceStore.getBoolean("reader_ocr_outline_visible", false)
 
     fun ocrAutoOnDownload() = preferenceStore.getBoolean("ocr_auto_on_download", false)
+
+    fun readerStartupDelay() = preferenceStore.getBoolean("reader_startup_delay", false)
     // Chimahon <--
 
     // endregion

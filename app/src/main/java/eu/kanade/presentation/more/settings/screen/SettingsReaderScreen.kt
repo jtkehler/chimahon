@@ -171,6 +171,10 @@ object SettingsReaderScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_keep_screen_on),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.readerStartupDelay(),
+                    title = stringResource(MR.strings.pref_reader_startup_delay),
+                ),
+                Preference.PreferenceItem.SwitchPreference(
                     preference = readerPreferences.showPageNumber(),
                     title = stringResource(MR.strings.pref_show_page_number),
                 ),
