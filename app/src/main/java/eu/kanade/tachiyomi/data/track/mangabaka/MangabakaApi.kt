@@ -29,7 +29,9 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.i18n.MR
 import uy.kohesive.injekt.injectLazy
 import java.math.RoundingMode
+import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.Locale
 import tachiyomi.domain.track.model.Track as DomainTrack
@@ -82,10 +84,10 @@ class MangaBakaApi(
                     put("rating", track.score.toInt().coerceIn(0, 100))
                 }
                 if (track.started_reading_date > 0) {
-                    put("start_date", track.started_reading_date.toLocalDate().toString())
+                    put("start_date", track.started_reading_date.toApiDateTimeString())
                 }
                 if (track.finished_reading_date > 0) {
-                    put("finish_date", track.finished_reading_date.toLocalDate().toString())
+                    put("finish_date", track.finished_reading_date.toApiDateTimeString())
                 }
             }
                 .toString()
@@ -126,13 +128,8 @@ class MangaBakaApi(
                         title = additionalData.title
                         status = userData.getStatus()
                         score = userData.rating?.toDouble() ?: 0.0
-                        started_reading_date = userData.startDate?.let {
-                                LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-                            } ?: 0
-                        finished_reading_date =
-                            userData.finishDate?.let {
-                                LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-                            } ?: 0
+                        started_reading_date = parseApiDateMillis(userData.startDate)
+                        finished_reading_date = parseApiDateMillis(userData.finishDate)
                         last_chapter_read = userData.progressChapter ?: 0.0
                         private = userData.isPrivate
                     }
@@ -164,12 +161,12 @@ class MangaBakaApi(
                     put("rating", null)
                 }
                 if (track.started_reading_date > 0) {
-                    put("start_date", track.started_reading_date.toLocalDate().toString())
+                    put("start_date", track.started_reading_date.toApiDateTimeString())
                 } else {
                     put("start_date", null)
                 }
                 if (track.finished_reading_date > 0) {
-                    put("finish_date", track.finished_reading_date.toLocalDate().toString())
+                    put("finish_date", track.finished_reading_date.toApiDateTimeString())
                 } else {
                     put("finish_date", null)
                 }
@@ -244,5 +241,31 @@ class MangaBakaApi(
         private const val API_BASE_URL = "https://api.mangabaka.org"
         private const val LIBRARY_API_URL = "$API_BASE_URL/v1/my/library"
         private const val APP_JSON = "application/json"
+
+        private fun Long.toApiDateTimeString(): String {
+            return toLocalDate()
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+                .toString()
+        }
+
+        private fun parseApiDateMillis(value: String?): Long {
+            val text = value?.takeIf { it.isNotBlank() } ?: return 0
+
+            return runCatching {
+                LocalDate.parse(text)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
+            }.getOrElse {
+                runCatching {
+                    Instant.parse(text).toEpochMilli()
+                }.getOrElse {
+                    runCatching {
+                        OffsetDateTime.parse(text).toInstant().toEpochMilli()
+                    }.getOrDefault(0L)
+                }
+            }
+        }
     }
 }
