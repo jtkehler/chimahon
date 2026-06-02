@@ -17,7 +17,6 @@ import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
-import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrCoordinateMapper
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
@@ -235,11 +234,7 @@ class WebtoonPageHolder(
                     isAnimated,
                     ReaderPageImageView.Config(
                         zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = if (viewer.config.webtoonScaleType == ReaderPreferences.WebtoonScaleType.FIT) {
-                            SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE
-                        } else {
-                            SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH
-                        },
+                        minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
                         cropBorders =
                         (viewer.config.imageCropBorders && viewer.isContinuous) ||
                             (viewer.config.continuousCropBorders && !viewer.isContinuous),

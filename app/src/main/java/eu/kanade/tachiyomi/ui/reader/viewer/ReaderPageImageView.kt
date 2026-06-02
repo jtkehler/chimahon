@@ -15,7 +15,6 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.AttrRes
@@ -391,11 +390,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             )
             setOnClickListener { this@ReaderPageImageView.onViewClicked() }
         }
-        // In webtoon mode, use WRAP_CONTENT height to respect image dimensions
-        // In paged mode, use MATCH_PARENT to fill the pager
-        val ssivWidth = MATCH_PARENT
-        val ssivHeight = if (isWebtoon) WRAP_CONTENT else MATCH_PARENT
-        addView(pageView, ssivWidth, ssivHeight)
+        addView(pageView, MATCH_PARENT, MATCH_PARENT)
     }
 
     private fun SubsamplingScaleImageView.setupZoom(config: Config?) {
