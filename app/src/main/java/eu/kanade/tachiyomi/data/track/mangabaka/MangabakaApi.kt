@@ -241,7 +241,7 @@ class MangaBakaApi(
 
     companion object {
         private const val BASE_URL = "https://mangabaka.org"
-        private const val API_BASE_URL = "https://api.mangabaka.dev"
+        private const val API_BASE_URL = "https://api.mangabaka.org"
         private const val LIBRARY_API_URL = "$API_BASE_URL/v1/my/library"
         private const val APP_JSON = "application/json"
     }
