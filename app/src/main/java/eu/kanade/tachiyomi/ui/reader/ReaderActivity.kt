@@ -1285,7 +1285,8 @@ class ReaderActivity : BaseActivity() {
         // SY <--
 
         // Chimahon: OCR overlay preference
-        val ocrEnabled by readerPreferences.ocrOverlayEnabled().collectAsState()
+        val ocrOverlayEnabled by readerPreferences.ocrOverlayEnabled().collectAsState()
+        val ocrEnabled = ocrOverlayEnabled && viewModel.isOcrAllowedForCurrentManga()
 
         ReaderAppBars(
             visible = state.menuVisible,

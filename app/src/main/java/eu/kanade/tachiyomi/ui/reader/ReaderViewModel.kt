@@ -29,6 +29,7 @@ import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.ocr.isOcrAllowedForLanguage
 import eu.kanade.tachiyomi.data.ocr.retryWithBackoff
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
@@ -1270,7 +1271,21 @@ class ReaderViewModel @JvmOverloads constructor(
     // SY <--
 
     // Chimahon: OCR methods
-    fun isOcrEnabled(): Boolean = readerPreferences.ocrOverlayEnabled().get()
+    fun isOcrEnabled(): Boolean = readerPreferences.ocrOverlayEnabled().get() && isOcrAllowedForCurrentManga()
+
+    fun isOcrAllowedForCurrentManga(): Boolean {
+        val manga = manga ?: return true
+        val source = sourceManager.getOrStub(manga.source)
+        if (source.isLocal()) return true
+
+        val profile = dictionaryPreferences.profileResolver.resolve(
+            mangaId = manga.id,
+            sourceId = manga.source,
+            sourceLang = source.lang,
+        )
+
+        return isOcrAllowedForLanguage(source.lang, profile.languageCode)
+    }
 
     fun isOcrOutlineVisible(): Boolean = readerPreferences.ocrOutlineVisible().get()
 
@@ -1281,6 +1296,11 @@ class ReaderViewModel @JvmOverloads constructor(
     fun toggleOcrEnabled(): Boolean {
         val pref = readerPreferences.ocrOverlayEnabled()
         val enabled = !pref.get()
+        if (enabled && !isOcrAllowedForCurrentManga()) {
+            cancelOcrScan()
+            pref.set(false)
+            return false
+        }
         pref.set(enabled)
         if (!enabled) {
             cancelOcrScan()
