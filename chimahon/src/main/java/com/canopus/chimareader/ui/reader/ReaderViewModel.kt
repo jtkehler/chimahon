@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.canopus.chimareader.data.BookMetadata
 import com.canopus.chimareader.data.BookStorage
 import com.canopus.chimareader.data.Bookmark
+import com.canopus.chimareader.data.CustomReaderTheme
 import com.canopus.chimareader.data.FileNames
 import com.canopus.chimareader.data.FontManager
 import com.canopus.chimareader.data.NovelReaderSettings
@@ -157,6 +158,7 @@ class ReaderViewModel(
     var continuousMode by mutableStateOf(false)
     var customBackgroundColor by mutableIntStateOf(0xFFF2E2C9.toInt())
     var customTextColor by mutableIntStateOf(0xFF000000.toInt())
+    var customThemes by mutableStateOf<List<CustomReaderTheme>>(emptyList())
     var sasayakiPlayer: SasayakiPlayer? by mutableStateOf(null)
     var verticalWriting by mutableStateOf(true)
     var characterSpacing by mutableDoubleStateOf(0.0)
@@ -223,6 +225,7 @@ class ReaderViewModel(
             continuousMode = settings.continuousMode.first()
             customBackgroundColor = settings.customBackgroundColor.first()
             customTextColor = settings.customTextColor.first()
+            customThemes = settings.customThemes.first()
             verticalWriting = settings.verticalWriting.first()
             paragraphSpacing = settings.paragraphSpacing.first()
             avoidPageBreak = settings.avoidPageBreak.first()
@@ -326,6 +329,9 @@ class ReaderViewModel(
             settings.customTextColor.collect { customTextColor = it }
         }
         scope.launch {
+            settings.customThemes.collect { customThemes = it }
+        }
+        scope.launch {
             settings.verticalWriting.collect { verticalWriting = it }
         }
         scope.launch {
@@ -366,6 +372,8 @@ class ReaderViewModel(
     fun updateContinuousMode(value: Boolean) = scope.launch { settings.setContinuousMode(value) }
     fun updateCustomBackgroundColor(value: Int) = scope.launch { settings.setCustomBackgroundColor(value) }
     fun updateCustomTextColor(value: Int) = scope.launch { settings.setCustomTextColor(value) }
+    fun applyCustomTheme(value: CustomReaderTheme) = scope.launch { settings.setCustomTheme(value) }
+    fun addCustomTheme(value: CustomReaderTheme) = scope.launch { settings.addCustomTheme(value) }
     fun updateVerticalWriting(value: Boolean) = scope.launch { settings.setVerticalWriting(value) }
     fun updateJustifyText(value: Boolean) = scope.launch { settings.setJustifyText(value) }
     fun updateAvoidPageBreak(value: Boolean) = scope.launch { settings.setAvoidPageBreak(value) }

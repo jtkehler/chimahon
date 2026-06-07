@@ -153,7 +153,6 @@ object BookImporter {
                 categoryIds = resolvedCategoryIds,
             )
             BookStorage.saveMetadata(metadata, bookDir)
-            BookStorage.saveSpineCache(extractedBook.spine, bookDir)
 
             existingBookmark?.let { BookStorage.saveBookmark(it, bookDir) }
             existingStats?.let { BookStorage.saveStatistics(it, bookDir) }

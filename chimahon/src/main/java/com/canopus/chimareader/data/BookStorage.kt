@@ -13,8 +13,8 @@ object BookStorage {
     }
 
     fun loadEpub(directory: File): EpubBook {
-        val cachedSpine = loadSpineCache(directory)
-        return EpubParser.parse(directory, cachedSpine)
+        deleteObsoleteSpineCache(directory)
+        return EpubParser.parse(directory)
     }
 
     fun getBookDirectory(context: android.content.Context, bookId: String): File {
@@ -57,14 +57,6 @@ object BookStorage {
             null
         }
     }
-    fun saveSpineCache(spine: com.canopus.chimareader.data.epub.EpubSpine, directory: File) {
-        save(spine, directory, "spine_cache.json")
-    }
-
-    fun loadSpineCache(directory: File): com.canopus.chimareader.data.epub.EpubSpine? {
-        return load(directory, "spine_cache.json")
-    }
-
     fun saveBookmark(bookmark: Bookmark, directory: File) {
         save(bookmark, directory, FileNames.bookmark)
     }
@@ -197,6 +189,12 @@ object BookStorage {
         val directory: File,
         val metadata: BookMetadata,
     )
+
+    private fun deleteObsoleteSpineCache(directory: File) {
+        File(directory, "spine_cache.json")
+            .takeIf { it.exists() }
+            ?.delete()
+    }
 
     enum class BookStorageError {
         ACCESS_DENIED,
