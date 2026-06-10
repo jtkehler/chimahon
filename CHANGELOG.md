@@ -4,6 +4,34 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v1.9.1]
+
+### Added
+- Screen overlay and context menu text lookup
+- Sentence-furigana Anki markers
+- Average frequency display in dictionary popup
+- Two-finger OCR toggle gesture
+- Mokuro support in downloads
+- Novel reader custom theme management
+- TTU sync
+- Lapis as default Anki note type
+
+### Changed
+- Separate OCR box scale axes
+- Strip justify alignment from imported EPUB CSS
+- Skip OCR for mismatched source languages
+- Bring back OCR outline border
+- Increased zero opacity text visibility
+- Novel tracking indicator location
+### Fixed
+- decoder for Anki screenshots
+- Dictionary header selection toggle
+- Accidental OCR selection panel trigger on swipe
+- Korean deinflection jamo mismatches
+- Dictionary CSS scope leak
+- Image sizing
+- Mokuro CBZ page matching
+
 ## [v1.9.0]
 
 ### Added

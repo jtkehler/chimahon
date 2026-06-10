@@ -30,13 +30,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +90,8 @@ internal class ScreenLookupOverlayController(
     private var overlayView: ComposeView? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
     private var screenshot: Bitmap? = null
+    private var cachedWebView: WebView? = null
+    private var cachedProfile: chimahon.anki.AnkiProfile? = null
 
     val isShowing: Boolean
         get() = overlayView != null
@@ -97,6 +99,13 @@ internal class ScreenLookupOverlayController(
     fun show(nextScreenshot: Bitmap) {
         dismiss(recycleScreenshot = true, notify = false)
         screenshot = nextScreenshot
+
+        val profile = cachedProfile
+            ?: Injekt.get<DictionaryPreferences>().profileStore.getActiveProfile()
+                .also { cachedProfile = it }
+        val webView = cachedWebView
+            ?: prepareDictionaryWebViewShell(context, languageCode = profile.languageCode)
+                .also { cachedWebView = it }
 
         val owner = OverlayLifecycleOwner().also {
             it.performCreate()
@@ -112,6 +121,8 @@ internal class ScreenLookupOverlayController(
             setComposeContent {
                 ScreenLookupOverlay(
                     screenshot = nextScreenshot,
+                    webView = webView,
+                    activeProfile = profile,
                     onClose = { dismiss() },
                     onRecapture = {
                         dismiss(recycleScreenshot = true, notify = false)
@@ -148,6 +159,13 @@ internal class ScreenLookupOverlayController(
         }
         screenshot = null
         if (notify) onDismiss()
+    }
+
+    fun release() {
+        dismiss(recycleScreenshot = true, notify = false)
+        cachedWebView?.runCatching { destroy() }
+        cachedWebView = null
+        cachedProfile = null
     }
 }
 
@@ -200,31 +218,23 @@ private data class ScreenLookupSelection(
 @Composable
 private fun ScreenLookupOverlay(
     screenshot: Bitmap,
+    webView: WebView,
+    activeProfile: chimahon.anki.AnkiProfile,
     onClose: () -> Unit,
     onRecapture: () -> Unit,
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
-    val activeProfile = remember { dictionaryPreferences.profileStore.getActiveProfile() }
+    val localDensity = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val repository = remember { Injekt.get<DictionaryRepository>() }
-    val webView = remember(activeProfile.languageCode) {
-        prepareDictionaryWebViewShell(context, languageCode = activeProfile.languageCode)
-    }
 
     var blocks by remember { mutableStateOf<List<OcrTextBlock>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var selection by remember { mutableStateOf<ScreenLookupSelection?>(null) }
     var lookupNonce by remember { mutableIntStateOf(0) }
-
-    DisposableEffect(webView) {
-        onDispose {
-            webView.runCatching {
-                stopLoading()
-                destroy()
-            }
-        }
+    var lookupDeferred by remember {
+        mutableStateOf<kotlinx.coroutines.Deferred<DictionaryRepository.LookupResult2>?>(null)
     }
 
     LaunchedEffect(screenshot, activeProfile.languageCode) {
@@ -256,8 +266,8 @@ private fun ScreenLookupOverlay(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        val widthPx = with(density) { maxWidth.toPx() }
-        val heightPx = with(density) { maxHeight.toPx() }
+        val widthPx = with(localDensity) { maxWidth.toPx() }
+        val heightPx = with(localDensity) { maxHeight.toPx() }
 
         Image(
             bitmap = screenshot.asImageBitmap(),
