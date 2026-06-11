@@ -772,7 +772,7 @@
       // Skip interactive controls — buttons, dict tags, inflection toggles, etc.
       const target = e.target;
       if (!target) return;
-      if (target.closest('button, .anki-add-btn, .lookup-tab, .inflection-toggle, .tag, .dictionary-header')) return;
+      if (target.closest('button, .anki-add-btn, .lookup-tab, .entry-deinflection-row, .tag, .dictionary-header, details, summary, a, .gloss-link, .gloss-sc-a')) return;
 
       const word = extractTextAtPoint(e.clientX, e.clientY);
       if (!word) return;
@@ -2227,10 +2227,15 @@
     article.className = 'entry';
     article.dataset.index = String(result.index || 0);
     
-    // Add data-dictionary attribute for scoped CSS
-    const dictName = result.term && result.term.glossaries && result.term.glossaries[0] && result.term.glossaries[0].dictName;
-    if (dictName) {
-      article.dataset.dictionary = dictName;
+    // Add data-dictionary attribute for scoped CSS only when this article
+    // represents a single dictionary (groupTerms=false). When groupTerms=true
+    // the article bundles glossaries from multiple dictionaries, so the
+    // attribute is set on each .dictionary-group div instead.
+    if (!groupTerms) {
+      const dictName = result.term && result.term.glossaries && result.term.glossaries[0] && result.term.glossaries[0].dictName;
+      if (dictName) {
+        article.dataset.dictionary = dictName;
+      }
     }
 
     const body = document.createElement('div');
