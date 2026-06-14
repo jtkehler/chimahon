@@ -536,11 +536,6 @@ private class ReaderAndroidWebView(
         appendLine("img.block-img, svg.block-img { position: static !important; }")
     }
 
-    // Safe fallback for inline / gaiji images — keeps them from overflowing their container
-    // but doesn't fight the per-mode block-img rules injected below.
-    private fun buildImageCSS(): String =
-        "img { max-width: 100% !important; height: auto !important; }"
-
     private fun paragraphSpacingJS(settings: ReaderSettings): String = """
         var paragraphStyle = document.getElementById('hoshi-paragraph-spacing-style');
         if (!paragraphStyle) {
@@ -688,6 +683,7 @@ private class ReaderAndroidWebView(
                 var imgMaxH = Math.max(1, ih);
                 document.documentElement.style.setProperty('--reader-image-max-width', imgMaxW + 'px');
                 document.documentElement.style.setProperty('--reader-image-max-height', imgMaxH + 'px');
+                document.documentElement.style.setProperty('--reader-h-pad', hPad + 'px');
 
                 var s = document.getElementById('hoshi-style');
                 if (s) s.remove();
@@ -702,13 +698,19 @@ private class ReaderAndroidWebView(
                 contImgStyle = document.createElement('style');
                 contImgStyle.id = 'reader-cont-img-style';
                 contImgStyle.textContent = [
+                    '#hoshi-content-wrapper .block-img-container {',
+                    '  margin-left: calc(-1 * var(--reader-h-pad, 0px)) !important;',
+                    '  margin-right: calc(-1 * var(--reader-h-pad, 0px)) !important;',
+                    '  width: var(--reader-image-max-width, 95vw) !important;',
+                    '  text-align: center !important;',
+                    '}',
                     'img.block-img, svg.block-img {',
                     '  max-width: var(--reader-image-max-width, 95vw) !important;',
                     '  max-height: var(--reader-image-max-height, 95vh) !important;',
                     '  width: auto !important;',
                     '  height: auto !important;',
                     '  display: block !important;',
-                    '  margin: auto !important;',
+                    '  margin: 0 auto !important;',
                     '  object-fit: contain !important;',
                     '}',
                     'img:not(.block-img), svg:not(.block-img) {',
@@ -718,7 +720,14 @@ private class ReaderAndroidWebView(
                     '  min-width: 1em !important;',
                     '  vertical-align: middle !important;',
                     '  display: inline-block !important;',
-                    '}'
+                    '}',
+                    'img.gaiji, img.gaiji-line {',
+                    '  height: 1em !important;',
+                    '  width: auto !important;',
+                    '  vertical-align: baseline !important;',
+                    '  margin: 0 !important;',
+                    '  padding: 0 !important;',
+                    '}',
                 ].join(' ');
                 document.head.appendChild(contImgStyle);
 
@@ -799,6 +808,9 @@ private class ReaderAndroidWebView(
                                 }
                                 if (isLarge) {
                                     el.classList.add('block-img');
+                                    if (el.parentElement) {
+                                        el.parentElement.classList.add('block-img-container');
+                                    }
                                 }
                             }
                             resolve();
@@ -879,7 +891,7 @@ private class ReaderAndroidWebView(
                     '  width: auto !important;',
                     '  height: auto !important;',
                     '  display: block !important;',
-                    '  margin: auto !important;',
+                    '  margin: 0 auto !important;',
                     '  break-inside: avoid !important;',
                     '  -webkit-column-break-inside: avoid !important;',
                     '  object-fit: contain !important;',
@@ -891,7 +903,14 @@ private class ReaderAndroidWebView(
                     '  min-width: 1em !important;',
                     '  vertical-align: middle !important;',
                     '  display: inline-block !important;',
-                    '}'
+                    '}',
+                    'img.gaiji, img.gaiji-line {',
+                    '  height: 1em !important;',
+                    '  width: auto !important;',
+                    '  vertical-align: baseline !important;',
+                    '  margin: 0 !important;',
+                    '  padding: 0 !important;',
+                    '}',
                 ].join(' ');
                 document.head.appendChild(blockImgStyle);
 
@@ -1001,6 +1020,9 @@ private class ReaderAndroidWebView(
                                 }
                                 if (isLarge) {
                                     el.classList.add('block-img');
+                                    if (el.parentElement) {
+                                        el.parentElement.classList.add('block-img-container');
+                                    }
                                 }
                             }
                             resolve();
@@ -1014,7 +1036,19 @@ private class ReaderAndroidWebView(
                     });
                 });
                 Promise.all(imagePromises)
-                    .then(function() { return new Promise(function(r) { setTimeout(r, 50); }); })
+                    .then(function() {
+                        // If page has only block images (no text), remove horizontal padding
+                        // so images center cleanly without multicol clipping.
+                        var hasBlockImg = wrapper.querySelector('.block-img-container') !== null;
+                        var hasText = wrapper.innerText.trim().length > 0;
+                        if (hasBlockImg && !hasText) {
+                            wrapper.style.setProperty('padding', '0', 'important');
+                            wrapper.style.setProperty('display', 'flex', 'important');
+                            wrapper.style.setProperty('align-items', 'center', 'important');
+                            wrapper.style.setProperty('justify-content', 'center', 'important');
+                        }
+                        return new Promise(function(r) { setTimeout(r, 50); });
+                    })
                     .then(function() {
                         window.hoshiReader.restoreProgress($pendingProgress, ${if (vw) "true" else "false"});
                     });
