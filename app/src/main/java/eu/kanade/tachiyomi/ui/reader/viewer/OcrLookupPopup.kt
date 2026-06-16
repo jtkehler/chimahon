@@ -112,6 +112,7 @@ fun OcrLookupPopup(
     onTermMatched: ((Int, Int) -> Unit)? = null,
     onContentReadyChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
+    titleId: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -442,6 +443,8 @@ fun OcrLookupPopup(
                     forceOpen = forceOpen,
                     type = type,
                     syncOnCreate = ankiSyncOnCreate,
+                    profileId = activeProfile.id,
+                    titleId = titleId,
                 )
                 if (ankiResult is AnkiResult.Success || ankiResult is AnkiResult.CardExists || ankiResult is AnkiResult.OpenCard) {
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -489,6 +492,8 @@ fun OcrLookupPopup(
                     forceOpen = forceOpen,
                     type = type,
                     syncOnCreate = ankiSyncOnCreate,
+                    profileId = activeProfile.id,
+                    titleId = titleId,
                 )
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     when (ankiResult) {

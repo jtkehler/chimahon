@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import chimahon.anki.AnkiProfile
 import eu.kanade.presentation.more.stats.data.StatsData
 import eu.kanade.presentation.more.stats.data.StatsType
 import tachiyomi.i18n.MR
@@ -100,7 +101,11 @@ fun StatsScreenContent(
     onDateScaleSelect: (StatsDateScale) -> Unit,
     onDateOffsetChange: (Int) -> Unit,
     onStatsTypeSelect: (StatsType) -> Unit,
+    onProfileSelect: (String?) -> Unit,
     allRead: Boolean = false,
+    isSingleTitle: Boolean = false,
+    titleName: String? = null,
+    onLibraryCardClick: (() -> Unit)? = null,
 ) {
     LazyColumn(
         contentPadding = paddingValues,
@@ -113,6 +118,10 @@ fun StatsScreenContent(
                 onStatsTypeSelect = onStatsTypeSelect,
                 dateScale = state.dateScale,
                 onDateScaleSelect = onDateScaleSelect,
+                activeProfileId = state.activeProfileId,
+                profiles = state.profiles,
+                onProfileSelect = onProfileSelect,
+                isSingleTitle = isSingleTitle,
             )
         }
 
@@ -132,7 +141,12 @@ fun StatsScreenContent(
         }
 
         item {
-            StatsGrid(state, allRead)
+            StatsGrid(
+                state = state,
+                allRead = allRead,
+                isSingleTitle = isSingleTitle,
+                onLibraryCardClick = onLibraryCardClick,
+            )
         }
     }
 }
@@ -143,6 +157,10 @@ private fun FiltersRow(
     onStatsTypeSelect: (StatsType) -> Unit,
     dateScale: StatsDateScale,
     onDateScaleSelect: (StatsDateScale) -> Unit,
+    activeProfileId: String?,
+    profiles: List<AnkiProfile>,
+    onProfileSelect: (String?) -> Unit,
+    isSingleTitle: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -152,25 +170,27 @@ private fun FiltersRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatsType.values().forEach { type ->
-            val isSelected = statsType == type
-            FilterChip(
-                selected = isSelected,
-                onClick = { onStatsTypeSelect(type) },
-                label = { Text(type.name) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
+        if (!isSingleTitle) {
+            StatsType.values().forEach { type ->
+                val isSelected = statsType == type
+                FilterChip(
                     selected = isSelected,
-                    borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                    selectedBorderColor = Color.Transparent,
-                    borderWidth = 1.dp,
-                ),
-                shape = RoundedCornerShape(8.dp),
-            )
+                    onClick = { onStatsTypeSelect(type) },
+                    label = { Text(type.name) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        selectedBorderColor = Color.Transparent,
+                        borderWidth = 1.dp,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
         }
 
         var showMenu by remember { mutableStateOf(false) }
@@ -203,8 +223,64 @@ private fun FiltersRow(
                 }
             }
         }
+
+        if (!isSingleTitle) {
+            var showProfileMenu by remember { mutableStateOf(false) }
+            val activeProfile = remember(activeProfileId, profiles) {
+                profiles.find { it.id == activeProfileId }
+            }
+            val isProfileSelected = activeProfileId != null
+            val profileLabel = if (activeProfile != null) {
+                stringResource(SYMR.strings.stats_profile_filter_label, activeProfile.name)
+            } else {
+                stringResource(SYMR.strings.stats_all_profiles)
+            }
+
+            Box {
+                FilterChip(
+                    selected = isProfileSelected,
+                    onClick = { showProfileMenu = true },
+                    label = { Text(profileLabel) },
+                    trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isProfileSelected,
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        selectedBorderColor = Color.Transparent,
+                        borderWidth = 1.dp,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                )
+                DropdownMenu(
+                    expanded = showProfileMenu,
+                    onDismissRequest = { showProfileMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(SYMR.strings.stats_all_profiles)) },
+                        onClick = {
+                            onProfileSelect(null)
+                            showProfileMenu = false
+                        },
+                    )
+                    profiles.forEach { profile ->
+                        DropdownMenuItem(
+                            text = { Text(profile.name) },
+                            onClick = {
+                                onProfileSelect(profile.id)
+                                showProfileMenu = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
+
 
 @Composable
 private fun DateNavigation(
@@ -416,7 +492,12 @@ private fun HeroSection(
 }
 
 @Composable
-private fun StatsGrid(state: StatsScreenState.Success, allRead: Boolean = false) {
+private fun StatsGrid(
+    state: StatsScreenState.Success,
+    allRead: Boolean = false,
+    isSingleTitle: Boolean = false,
+    onLibraryCardClick: (() -> Unit)? = null,
+) {
     val iconColor = MaterialTheme.colorScheme.primary
     
     Column(
@@ -447,28 +528,33 @@ private fun StatsGrid(state: StatsScreenState.Success, allRead: Boolean = false)
         }
 
         // Library Section
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = "Library",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 4.dp),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.overview.libraryMangaCount.toCountString(), if (allRead) "All read" else "In library", null, Icons.Outlined.LibraryBooks, iconColor))
+        if (!isSingleTitle) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Library",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(
+                            data = MetricData(state.overview.libraryMangaCount.toCountString(), if (allRead) "All read" else "In library", null, Icons.Outlined.LibraryBooks, iconColor),
+                            onClick = onLibraryCardClick,
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(MetricData(state.titles.localMangaCount.toCountString(), "Local", null, Icons.Outlined.SdCard, iconColor))
+                    }
                 }
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.titles.localMangaCount.toCountString(), "Local", null, Icons.Outlined.SdCard, iconColor))
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.titles.startedMangaCount.toCountString(), "Started", null, Icons.Outlined.PlayArrow, iconColor))
-                }
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.overview.completedMangaCount.toCountString(), "Completed", null, Icons.Outlined.DoneAll, iconColor))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(MetricData(state.titles.startedMangaCount.toCountString(), "Started", null, Icons.Outlined.PlayArrow, iconColor))
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(MetricData(state.overview.completedMangaCount.toCountString(), "Completed", null, Icons.Outlined.DoneAll, iconColor))
+                    }
                 }
             }
         }
@@ -490,7 +576,7 @@ private fun StatsGrid(state: StatsScreenState.Success, allRead: Boolean = false)
                     MetricCard(MetricData(state.chapters.readChapterCount.toCountString(), "Read", null, Icons.Outlined.History, iconColor))
                 }
             }
-            if (state.statsType != StatsType.Novels) {
+            if (state.statsType != StatsType.Novels && !isSingleTitle) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
                         MetricCard(MetricData(state.chapters.downloadCount.toCountString(), "Downloaded", null, Icons.Outlined.Download, iconColor))
@@ -501,7 +587,7 @@ private fun StatsGrid(state: StatsScreenState.Success, allRead: Boolean = false)
         }
 
         // Trackers Section
-        if (state.statsType != StatsType.Novels) {
+        if (state.statsType != StatsType.Novels && !isSingleTitle) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = "Trackers",
@@ -539,22 +625,39 @@ data class MetricData(
 )
 
 @Composable
-private fun MetricCard(data: MetricData) {
+private fun MetricCard(data: MetricData, onClick: (() -> Unit)? = null) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.fillMaxWidth().height(114.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(114.dp)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it },
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Icon(
-                imageVector = data.icon,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = data.accentColor,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = data.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = data.accentColor,
+                )
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
+            }
             Column {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
