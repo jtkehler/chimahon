@@ -345,9 +345,13 @@ object OcrCoordinateMapper {
         return try {
             // Peek so we don't consume the stream
             val bytes = stream.peek().readByteArray()
-            val bitmap = OcrBitmapDecoder.decode(bytes, sampleSize = 2)
+            // sampleSize=2 keeps memory usage low but halves the decoded dimensions,
+            // which would halve filledLimit vs C++ (which runs on full-res pixels).
+            // We pass sampleSize into findBorders so it can scale filledLimit back up.
+            val sampleSize = 2
+            val bitmap = OcrBitmapDecoder.decode(bytes, sampleSize = sampleSize)
             try {
-                findBorders(bitmap)
+                findBorders(bitmap, sampleSize)
             } finally {
                 bitmap.recycle()
             }
@@ -360,26 +364,31 @@ object OcrCoordinateMapper {
     // Constants from borders.h (THRESHOLD = 0.75)
     private const val THRESHOLD = 0.75f
     private val THRESHOLD_FOR_BLACK = (255f * THRESHOLD).toInt()        // 191
-    private val THRESHOLD_FOR_WHITE = (255f - 255f * THRESHOLD).toInt() // 64
+    private val THRESHOLD_FOR_WHITE = (255f - 255f * THRESHOLD).toInt() // 63
     private const val FILLED_RATIO_LIMIT = 0.0025f
 
-    private fun isBlackPixel(pixels: IntArray, width: Int, x: Int, y: Int): Boolean {
+    private fun pixelLuminance(pixels: IntArray, width: Int, x: Int, y: Int): Int {
         val argb = pixels[y * width + x]
-        val gray = (argb shr 16) and 0xFF  // R channel of ARGB_8888
-        return gray < THRESHOLD_FOR_BLACK
+        // borders.cpp receives true grayscale (single uint8 luminance). We receive
+        // ARGB_8888, so convert using BT.601 luma coefficients to match the values
+        // image-decoder's row_convert.cpp produces.
+        val r = (argb shr 16) and 0xFF
+        val g = (argb shr 8) and 0xFF
+        val b = argb and 0xFF
+        return (0.299f * r + 0.587f * g + 0.114f * b).toInt()
     }
 
-    private fun isWhitePixel(pixels: IntArray, width: Int, x: Int, y: Int): Boolean {
-        val argb = pixels[y * width + x]
-        val gray = (argb shr 16) and 0xFF
-        return gray > THRESHOLD_FOR_WHITE
-    }
+    private fun isBlackPixel(pixels: IntArray, width: Int, x: Int, y: Int): Boolean =
+        pixelLuminance(pixels, width, x, y) < THRESHOLD_FOR_BLACK
+
+    private fun isWhitePixel(pixels: IntArray, width: Int, x: Int, y: Int): Boolean =
+        pixelLuminance(pixels, width, x, y) > THRESHOLD_FOR_WHITE
 
     /**
      * findBorders — port of borders.cpp's findBorders().
      * Returns a normalized RectF [0..1] that represents the *kept* region.
      */
-    private fun findBorders(bitmap: Bitmap): RectF? {
+    private fun findBorders(bitmap: Bitmap, sampleSize: Int = 1): RectF? {
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return null
@@ -387,10 +396,10 @@ object OcrCoordinateMapper {
         val pixels = IntArray(w * h)
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val top = findBorderTop(pixels, w, h)
-        val bottom = findBorderBottom(pixels, w, h)
-        val left = findBorderLeft(pixels, w, h, top, bottom)
-        val right = findBorderRight(pixels, w, h, top, bottom)
+        val top = findBorderTop(pixels, w, h, sampleSize)
+        val bottom = findBorderBottom(pixels, w, h, sampleSize)
+        val left = findBorderLeft(pixels, w, h, top, bottom, sampleSize)
+        val right = findBorderRight(pixels, w, h, top, bottom, sampleSize)
 
         if (right <= left || bottom <= top) return null
         // Only return a real crop rect if it actually trims something
@@ -404,8 +413,11 @@ object OcrCoordinateMapper {
         )
     }
 
-    private fun findBorderTop(pixels: IntArray, width: Int, height: Int): Int {
-        val filledLimit = (width * FILLED_RATIO_LIMIT / 2).roundToInt()
+    private fun findBorderTop(pixels: IntArray, width: Int, height: Int, sampleSize: Int = 1): Int {
+        // Scale filledLimit by sampleSize: C++ runs on full-res pixels so its limit is
+        // proportional to full width. At sampleSize=2 the decoded width is halved, so
+        // multiply back to get an equivalent threshold.
+        val filledLimit = (width * sampleSize * FILLED_RATIO_LIMIT / 2).roundToInt()
 
         var whitePixels = 0
         var blackPixels = 0
@@ -414,30 +426,24 @@ object OcrCoordinateMapper {
             else if (isWhitePixel(pixels, width, x, 0)) whitePixels++
         }
 
-        if (blackPixels > filledLimit) {
-            // Dark border → look for white content
-            for (y in 1 until height) {
-                var filledCount = 0
-                for (x in 0 until width step 2) {
-                    if (isWhitePixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return y
+        // Mixed fill on the edge — content starts at row 0, don't crop
+        if (whitePixels > filledLimit && blackPixels > filledLimit) return 0
+
+        val detect: (IntArray, Int, Int, Int) -> Boolean =
+            if (blackPixels > filledLimit) ::isWhitePixel else ::isBlackPixel
+
+        for (y in 1 until height) {
+            var filledCount = 0
+            for (x in 0 until width step 2) {
+                if (detect(pixels, width, x, y)) filledCount++
             }
-        } else {
-            // White border → look for black content
-            for (y in 1 until height) {
-                var filledCount = 0
-                for (x in 0 until width step 2) {
-                    if (isBlackPixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return y
-            }
+            if (filledCount > filledLimit) return y
         }
         return 0
     }
 
-    private fun findBorderBottom(pixels: IntArray, width: Int, height: Int): Int {
-        val filledLimit = (width * FILLED_RATIO_LIMIT / 2).roundToInt()
+    private fun findBorderBottom(pixels: IntArray, width: Int, height: Int, sampleSize: Int = 1): Int {
+        val filledLimit = (width * sampleSize * FILLED_RATIO_LIMIT / 2).roundToInt()
         val lastY = height - 1
 
         var whitePixels = 0
@@ -447,30 +453,28 @@ object OcrCoordinateMapper {
             else if (isWhitePixel(pixels, width, x, lastY)) whitePixels++
         }
 
-        if (blackPixels > filledLimit) {
-            for (y in height - 2 downTo 1) {
-                var filledCount = 0
-                for (x in 0 until width step 2) {
-                    if (isWhitePixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return y + 1
+        // Mixed fill on the edge — content reaches the last row, don't crop
+        if (whitePixels > filledLimit && blackPixels > filledLimit) return height
+
+        val detect: (IntArray, Int, Int, Int) -> Boolean =
+            if (blackPixels > filledLimit) ::isWhitePixel else ::isBlackPixel
+
+        for (y in height - 2 downTo 1) {
+            var filledCount = 0
+            for (x in 0 until width step 2) {
+                if (detect(pixels, width, x, y)) filledCount++
             }
-        } else {
-            for (y in height - 2 downTo 1) {
-                var filledCount = 0
-                for (x in 0 until width step 2) {
-                    if (isBlackPixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return y + 1
-            }
+            if (filledCount > filledLimit) return y + 1
         }
         return height
     }
 
-    private fun findBorderLeft(pixels: IntArray, width: Int, height: Int, top: Int, bottom: Int): Int {
+    private fun findBorderLeft(pixels: IntArray, width: Int, height: Int, top: Int, bottom: Int, sampleSize: Int = 1): Int {
         val totalRows = bottom - top
         if (totalRows <= 0) return 0
-        val filledLimit = (totalRows * FILLED_RATIO_LIMIT / 2).roundToInt()
+        // C++ uses the full image height (not bottom-top) for left/right filledLimit.
+        // We use height*sampleSize to recover the equivalent full-res value.
+        val filledLimit = (height * sampleSize * FILLED_RATIO_LIMIT / 2).roundToInt()
 
         var whitePixels = 0
         var blackPixels = 0
@@ -479,30 +483,27 @@ object OcrCoordinateMapper {
             else if (isWhitePixel(pixels, width, 0, y)) whitePixels++
         }
 
-        if (blackPixels > filledLimit) {
-            for (x in 1 until width) {
-                var filledCount = 0
-                for (y in top until bottom step 2) {
-                    if (isWhitePixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return x
+        // Mixed fill on the edge — content starts at column 0, don't crop
+        if (whitePixels > filledLimit && blackPixels > filledLimit) return 0
+
+        val detect: (IntArray, Int, Int, Int) -> Boolean =
+            if (blackPixels > filledLimit) ::isWhitePixel else ::isBlackPixel
+
+        for (x in 1 until width) {
+            var filledCount = 0
+            for (y in top until bottom step 2) {
+                if (detect(pixels, width, x, y)) filledCount++
             }
-        } else {
-            for (x in 1 until width) {
-                var filledCount = 0
-                for (y in top until bottom step 2) {
-                    if (isBlackPixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return x
-            }
+            if (filledCount > filledLimit) return x
         }
         return 0
     }
 
-    private fun findBorderRight(pixels: IntArray, width: Int, height: Int, top: Int, bottom: Int): Int {
+    private fun findBorderRight(pixels: IntArray, width: Int, height: Int, top: Int, bottom: Int, sampleSize: Int = 1): Int {
         val totalRows = bottom - top
         if (totalRows <= 0) return width
-        val filledLimit = (totalRows * FILLED_RATIO_LIMIT / 2).roundToInt()
+        // C++ uses the full image height (not bottom-top) for left/right filledLimit.
+        val filledLimit = (height * sampleSize * FILLED_RATIO_LIMIT / 2).roundToInt()
         val lastX = width - 1
 
         var whitePixels = 0
@@ -512,22 +513,18 @@ object OcrCoordinateMapper {
             else if (isWhitePixel(pixels, width, lastX, y)) whitePixels++
         }
 
-        if (blackPixels > filledLimit) {
-            for (x in width - 2 downTo 1) {
-                var filledCount = 0
-                for (y in top until bottom step 2) {
-                    if (isWhitePixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return x + 1
+        // Mixed fill on the edge — content reaches the last column, don't crop
+        if (whitePixels > filledLimit && blackPixels > filledLimit) return width
+
+        val detect: (IntArray, Int, Int, Int) -> Boolean =
+            if (blackPixels > filledLimit) ::isWhitePixel else ::isBlackPixel
+
+        for (x in width - 2 downTo 1) {
+            var filledCount = 0
+            for (y in top until bottom step 2) {
+                if (detect(pixels, width, x, y)) filledCount++
             }
-        } else {
-            for (x in width - 2 downTo 1) {
-                var filledCount = 0
-                for (y in top until bottom step 2) {
-                    if (isBlackPixel(pixels, width, x, y)) filledCount++
-                }
-                if (filledCount > filledLimit) return x + 1
-            }
+            if (filledCount > filledLimit) return x + 1
         }
         return width
     }
