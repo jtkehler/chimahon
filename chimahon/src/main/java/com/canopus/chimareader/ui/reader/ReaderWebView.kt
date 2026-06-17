@@ -123,6 +123,7 @@ fun ReaderWebView(
                 settings.loadWithOverviewMode = false
                 settings.useWideViewPort = true
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                settings.forceDark = WebSettings.FORCE_DARK_OFF
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
                 overScrollMode = WebView.OVER_SCROLL_NEVER
