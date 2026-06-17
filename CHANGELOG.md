@@ -4,6 +4,23 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v1.9.4]
+
+### Added
+- Title-specific statistics screen
+- Profile-based filtering on the global stats screen
+- Per-profile stats for library, novels, and added cards
+
+### Changed
+- Crop system bars from overlay OCR capture
+
+### Fixed
+- WebView force dark in reader causing wrong text rendering for dark text
+- Anki model selection being overridden by Lapis (Chimahon) fallback
+- VirtualDisplay crash on Android 16 (ImageReader close ordering)
+- OCR auto-crop border detection aligned with C++ library
+- Dictionary icon sizing and alignment to match Yomitan styles
+
 ## [v1.9.3]
 
 ### Fixed
