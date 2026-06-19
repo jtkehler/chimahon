@@ -75,7 +75,7 @@ Exit criteria:
 
 ## PR 4: whisper.cpp and Silero VAD native pipeline
 
-Status: planned.
+Status: implemented in the current worktree.
 
 - Vendor a pinned whisper.cpp revision and record its license/revision.
 - Add a small JNI wrapper to load/free the Whisper and Silero contexts and process in-memory 16 kHz PCM.
