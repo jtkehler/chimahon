@@ -89,6 +89,8 @@ import chimahon.anki.AnkiProfile
 import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelStatus
 import eu.kanade.tachiyomi.data.dictionary.DictionaryUpdateJob
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
@@ -2491,6 +2493,8 @@ object SettingsDictionaryScreen : SearchableSettings {
     @Composable
     private fun getOverlaySentenceAudioGroup(): Preference.PreferenceGroup {
         val prefs = remember { Injekt.get<DictionaryPreferences>() }
+        val modelManager = remember { Injekt.get<OverlayAudioModelManager>() }
+        val modelStatus by modelManager.status.collectAsState()
         val enabled by prefs.mineOverlayAudio().collectAsState()
         val beforePref = prefs.overlayAudioBeforeSeconds()
         val beforeSeconds by beforePref.collectAsState()
@@ -2528,6 +2532,33 @@ object SettingsDictionaryScreen : SearchableSettings {
                     steps = 29,
                     enabled = supported && enabled,
                     onValueChanged = afterPref::set,
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.pref_overlay_audio_model_status),
+                    subtitle = when (val status = modelStatus) {
+                        OverlayAudioModelStatus.Checking -> stringResource(MR.strings.pref_overlay_audio_models_checking)
+                        OverlayAudioModelStatus.Missing -> stringResource(MR.strings.pref_overlay_audio_models_missing)
+                        OverlayAudioModelStatus.Downloading -> stringResource(MR.strings.pref_overlay_audio_models_downloading)
+                        OverlayAudioModelStatus.Installed -> stringResource(MR.strings.pref_overlay_audio_models_installed)
+                        is OverlayAudioModelStatus.Error -> stringResource(
+                            MR.strings.pref_overlay_audio_models_error,
+                            status.message,
+                        )
+                    },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = when (modelStatus) {
+                        OverlayAudioModelStatus.Installed -> stringResource(MR.strings.pref_overlay_audio_models_delete)
+                        is OverlayAudioModelStatus.Error -> stringResource(MR.strings.pref_overlay_audio_models_retry)
+                        else -> stringResource(MR.strings.pref_overlay_audio_models_download)
+                    },
+                    enabled = supported && modelStatus !is OverlayAudioModelStatus.Checking &&
+                        modelStatus !is OverlayAudioModelStatus.Downloading,
+                    onClick = when (modelStatus) {
+                        OverlayAudioModelStatus.Installed -> modelManager::deleteModels
+                        OverlayAudioModelStatus.Missing, is OverlayAudioModelStatus.Error -> modelManager::downloadModels
+                        else -> null
+                    },
                 ),
             ),
         )

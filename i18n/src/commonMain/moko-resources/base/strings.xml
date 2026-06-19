@@ -306,6 +306,15 @@
     <string name="pref_overlay_audio_before">Audio before OCR capture</string>
     <string name="pref_overlay_audio_after">Audio after OCR capture</string>
     <string name="pref_overlay_audio_seconds">%1$d seconds</string>
+    <string name="pref_overlay_audio_model_status">Audio model status</string>
+    <string name="pref_overlay_audio_models_checking">Checking installed models…</string>
+    <string name="pref_overlay_audio_models_missing">Whisper and Silero models are not installed</string>
+    <string name="pref_overlay_audio_models_downloading">Downloading and validating Whisper and Silero models…</string>
+    <string name="pref_overlay_audio_models_installed">Whisper base-q5_1 and Silero VAD v6.2.0 are installed</string>
+    <string name="pref_overlay_audio_models_error">Audio model error: %1$s</string>
+    <string name="pref_overlay_audio_models_download">Download audio models</string>
+    <string name="pref_overlay_audio_models_retry">Retry audio model download</string>
+    <string name="pref_overlay_audio_models_delete">Delete audio models</string>
 
       <!-- General section -->
     <string name="pref_category_theme">Theme</string>

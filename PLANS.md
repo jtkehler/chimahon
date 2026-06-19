@@ -39,7 +39,7 @@ Exit criteria:
 
 ## PR 2: Model manager and explicit downloads
 
-Status: planned.
+Status: implemented in the current worktree.
 
 - Add a model manager based on the existing local-OCR downloader pattern.
 - Add model status, download, retry, and delete controls to the Overlay Sentence Audio settings group.
