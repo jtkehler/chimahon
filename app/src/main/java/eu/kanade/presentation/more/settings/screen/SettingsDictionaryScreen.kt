@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -187,7 +188,7 @@ private val markerSections = listOf(
         ),
     ),
     MarkerSection("Frequency", listOf(Marker.FREQUENCIES, Marker.FREQUENCY_LOWEST, Marker.FREQUENCY_HARMONIC_RANK, Marker.FREQUENCY_AVERAGE_RANK)),
-    MarkerSection("Media", listOf(Marker.WORD_AUDIO, Marker.AUDIO, Marker.SCREENSHOT)),
+    MarkerSection("Media", listOf(Marker.WORD_AUDIO, Marker.AUDIO, Marker.SENTENCE_AUDIO, Marker.SCREENSHOT)),
     MarkerSection(
         "Context",
         listOf(
@@ -202,7 +203,6 @@ private val markerSections = listOf(
             Marker.CHAPTER,
             Marker.MEDIA,
             Marker.DOCUMENT_TITLE,
-            Marker.SENTENCE_AUDIO,
         ),
     ),
 )
@@ -216,6 +216,7 @@ private val markerDisplayLabels: Map<String, String> = Marker.ALL_WITH_TODO.asso
         Marker.FURIGANA -> "${prefix}Furigana"
         Marker.FURIGANA_PLAIN -> "${prefix}Furigana Plain"
         Marker.AUDIO -> "${prefix}Audio"
+        Marker.SENTENCE_AUDIO -> "${prefix}Sentence Audio"
         Marker.GLOSSARY -> "${prefix}Glossary"
         Marker.GLOSSARY_BRIEF -> "${prefix}Glossary Brief"
         Marker.GLOSSARY_PLAIN -> "${prefix}Glossary Plain"
@@ -374,6 +375,7 @@ object SettingsDictionaryScreen : SearchableSettings {
             getAnkiProfileGroup(),
             getDictionaryListGroup(importLauncher),
             getWordAudioGroup(pickDb),
+            getOverlaySentenceAudioGroup(),
             getAnkiGroup(),
         )
     }
@@ -2484,6 +2486,51 @@ object SettingsDictionaryScreen : SearchableSettings {
         } else {
             base + markerText
         }.ifBlank { "{}" }
+    }
+
+    @Composable
+    private fun getOverlaySentenceAudioGroup(): Preference.PreferenceGroup {
+        val prefs = remember { Injekt.get<DictionaryPreferences>() }
+        val enabled by prefs.mineOverlayAudio().collectAsState()
+        val beforePref = prefs.overlayAudioBeforeSeconds()
+        val beforeSeconds by beforePref.collectAsState()
+        val afterPref = prefs.overlayAudioAfterSeconds()
+        val afterSeconds by afterPref.collectAsState()
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.pref_overlay_audio_title),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = prefs.mineOverlayAudio(),
+                    title = stringResource(MR.strings.pref_overlay_audio_enabled),
+                    subtitle = if (supported) {
+                        stringResource(MR.strings.pref_overlay_audio_enabled_summary)
+                    } else {
+                        stringResource(MR.strings.pref_overlay_audio_android_10_required)
+                    },
+                    enabled = supported,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = beforeSeconds,
+                    title = stringResource(MR.strings.pref_overlay_audio_before),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, beforeSeconds),
+                    valueRange = 0..60,
+                    steps = 59,
+                    enabled = supported && enabled,
+                    onValueChanged = beforePref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = afterSeconds,
+                    title = stringResource(MR.strings.pref_overlay_audio_after),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, afterSeconds),
+                    valueRange = 0..30,
+                    steps = 29,
+                    enabled = supported && enabled,
+                    onValueChanged = afterPref::set,
+                ),
+            ),
+        )
     }
 
     @Composable

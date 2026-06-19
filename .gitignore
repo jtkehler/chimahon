@@ -28,6 +28,7 @@ app/standard/preview/*
 
 # Chimahon additions
 *.md
+!PLANS.md
 /ref
 /reference/
 /external_ocr_refs

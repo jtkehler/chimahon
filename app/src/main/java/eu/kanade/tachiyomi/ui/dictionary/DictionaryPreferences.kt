@@ -29,6 +29,12 @@ class DictionaryPreferences(
     /** "cloud" (default) or "local" */
     fun ocrEngine() = preferenceStore.getString("pref_ocr_engine", "cloud")
 
+    fun mineOverlayAudio() = preferenceStore.getBoolean("pref_mine_overlay_audio", false)
+
+    fun overlayAudioBeforeSeconds() = preferenceStore.getInt("pref_overlay_audio_before_seconds", 15)
+
+    fun overlayAudioAfterSeconds() = preferenceStore.getInt("pref_overlay_audio_after_seconds", 5)
+
     fun showFrequencyHarmonic() = preferenceStore.getBoolean("pref_dict_show_frequency_harmonic", false)
     fun showFrequencyAverage() = preferenceStore.getBoolean("pref_dict_show_frequency_average", false)
 
