@@ -93,6 +93,11 @@ class OverlayAudioModelManager internal constructor(
 
     fun modelFile(model: OverlayAudioModel): File = File(modelDirectory, model.fileName)
 
+    fun modelFiles(): OverlayAudioModelFiles = OverlayAudioModelFiles(
+        whisper = modelFile(models.single { it.fileName == WHISPER_MODEL_FILE_NAME }),
+        vad = modelFile(models.single { it.fileName == VAD_MODEL_FILE_NAME }),
+    )
+
     internal suspend fun installModels(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             ensureModelDirectory()
@@ -181,18 +186,20 @@ class OverlayAudioModelManager internal constructor(
 
     companion object {
         const val MODEL_DIRECTORY = "overlay_audio_models"
+        const val WHISPER_MODEL_FILE_NAME = "ggml-base-q5_1.bin"
+        const val VAD_MODEL_FILE_NAME = "ggml-silero-v6.2.0.bin"
 
         internal val DEFAULT_MODELS = listOf(
             OverlayAudioModel(
                 displayName = "Whisper base-q5_1",
-                fileName = "ggml-base-q5_1.bin",
+                fileName = WHISPER_MODEL_FILE_NAME,
                 url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/87cd18b47b941d2f65d09981dad23bb7d0481c77/ggml-base-q5_1.bin",
                 expectedSize = 59_707_625L,
                 sha256 = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
             ),
             OverlayAudioModel(
                 displayName = "Silero VAD v6.2.0",
-                fileName = "ggml-silero-v6.2.0.bin",
+                fileName = VAD_MODEL_FILE_NAME,
                 url = "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
                 expectedSize = 885_098L,
                 sha256 = "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
@@ -200,6 +207,11 @@ class OverlayAudioModelManager internal constructor(
         )
     }
 }
+
+data class OverlayAudioModelFiles(
+    val whisper: File,
+    val vad: File,
+)
 
 data class OverlayAudioModel(
     val displayName: String,

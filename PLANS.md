@@ -94,7 +94,7 @@ Exit criteria:
 
 ## PR 5: Screen-overlay integration and device validation
 
-Status: planned.
+Status: implemented in the current worktree. The API 29/API 34 playback-capture matrix remains a manual device-validation task.
 
 - Bind the screen lookup service's timestamped audio provider to the optional `OcrLookupPopup` callback.
 - Preserve existing duplicate, open, crop, screenshot, and word-audio behavior.

@@ -37,7 +37,11 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import chimahon.audio.BufferedSentenceAudioProvider
+import chimahon.audio.NativeSentenceAudioBackend
+import chimahon.audio.SentenceAudioInferencePipeline
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +83,7 @@ class ScreenLookupService : Service() {
     private var overlayController: ScreenLookupOverlayController? = null
     private var cachedCaptureSize: CaptureSize? = null
     private var playbackAudioCapture: PlaybackAudioCapture? = null
+    private var sentenceAudioProvider: BufferedSentenceAudioProvider? = null
 
     private val windowManager: WindowManager
         get() = getSystemService()!!
@@ -182,6 +187,7 @@ class ScreenLookupService : Service() {
 
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
+                releaseSentenceAudioProvider()
                 playbackAudioCapture?.stop()
                 playbackAudioCapture = null
                 scope.launch { stopSelf() }
@@ -211,6 +217,20 @@ class ScreenLookupService : Service() {
         val capture = PlaybackAudioCapture(mediaProjection, scope)
         if (capture.start()) {
             playbackAudioCapture = capture
+            val modelManager = Injekt.get<OverlayAudioModelManager>()
+            sentenceAudioProvider = BufferedSentenceAudioProvider(capture.ringBuffer) {
+                val modelFiles = modelManager.modelFiles()
+                if (!modelFiles.whisper.isFile || !modelFiles.vad.isFile) {
+                    null
+                } else {
+                    SentenceAudioInferencePipeline(
+                        NativeSentenceAudioBackend(
+                            whisperModel = modelFiles.whisper,
+                            vadModel = modelFiles.vad,
+                        ),
+                    )
+                }
+            }
         } else {
             logcat(LogPriority.WARN) { "Playback audio capture unavailable; continuing without sentence audio" }
         }
@@ -391,6 +411,7 @@ class ScreenLookupService : Service() {
             windowManager = windowManager,
             onDismiss = { setFloatingButtonVisible(true) },
             onRecapture = { captureFromButton() },
+            sentenceAudioProvider = sentenceAudioProvider,
         ).also { overlayController = it }
         controller.show(bitmap, captureTimestampNanos)
     }
@@ -508,6 +529,7 @@ class ScreenLookupService : Service() {
     }
 
     private fun releaseProjection() {
+        releaseSentenceAudioProvider()
         playbackAudioCapture?.stop()
         playbackAudioCapture = null
         // Order matters: release VirtualDisplay first (detaches the surface),
@@ -532,6 +554,11 @@ class ScreenLookupService : Service() {
         projectionCallback = null
         runCatching { projection?.stop() }
         projection = null
+    }
+
+    private fun releaseSentenceAudioProvider() {
+        sentenceAudioProvider?.close()
+        sentenceAudioProvider = null
     }
 
     private fun captureSize(): CaptureSize {
