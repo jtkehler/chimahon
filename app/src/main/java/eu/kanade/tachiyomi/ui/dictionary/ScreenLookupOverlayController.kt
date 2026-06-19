@@ -63,6 +63,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import chimahon.DictionaryRepository
+import chimahon.audio.SentenceAudioProvider
+import chimahon.audio.SentenceAudioRequest
 import chimahon.ocr.OcrLanguage
 import eu.kanade.tachiyomi.data.ocr.recognizePage
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
@@ -87,6 +89,7 @@ internal class ScreenLookupOverlayController(
     private val windowManager: WindowManager,
     private val onDismiss: () -> Unit,
     private val onRecapture: () -> Unit,
+    private val sentenceAudioProvider: SentenceAudioProvider? = null,
 ) {
     private var overlayView: ComposeView? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
@@ -97,7 +100,7 @@ internal class ScreenLookupOverlayController(
     val isShowing: Boolean
         get() = overlayView != null
 
-    fun show(nextScreenshot: Bitmap) {
+    fun show(nextScreenshot: Bitmap, captureTimestampNanos: Long) {
         dismiss(recycleScreenshot = true, notify = false)
         screenshot = nextScreenshot
 
@@ -124,6 +127,8 @@ internal class ScreenLookupOverlayController(
                     screenshot = nextScreenshot,
                     webView = webView,
                     activeProfile = profile,
+                    captureTimestampNanos = captureTimestampNanos,
+                    sentenceAudioProvider = sentenceAudioProvider,
                     onClose = { dismiss() },
                     onRecapture = {
                         dismiss(recycleScreenshot = true, notify = false)
@@ -221,6 +226,8 @@ private fun ScreenLookupOverlay(
     screenshot: Bitmap,
     webView: WebView,
     activeProfile: chimahon.anki.AnkiProfile,
+    captureTimestampNanos: Long,
+    sentenceAudioProvider: SentenceAudioProvider?,
     onClose: () -> Unit,
     onRecapture: () -> Unit,
 ) {
@@ -522,6 +529,18 @@ private fun ScreenLookupOverlay(
                     onTermMatched = { count, off ->
                         matchedCharCount = count
                         matchOffset = off
+                    },
+                    onRequestSentenceAudio = sentenceAudioProvider?.let { provider ->
+                        { sentence ->
+                            provider.create(
+                                SentenceAudioRequest(
+                                    captureTimestampNanos = captureTimestampNanos,
+                                    sentence = sentence,
+                                    beforeSeconds = dictionaryPreferences.overlayAudioBeforeSeconds().get(),
+                                    afterSeconds = dictionaryPreferences.overlayAudioAfterSeconds().get(),
+                                ),
+                            )
+                        }
                     },
                 )
             }

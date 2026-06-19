@@ -56,7 +56,7 @@ Exit criteria:
 
 ## PR 3: Playback capture and bounded ring buffer
 
-Status: planned.
+Status: implemented in the current worktree.
 
 - Add `RECORD_AUDIO` to the manifest.
 - Request it only when the feature is enabled and the active profile maps `{sentence-audio}`; denial still starts ordinary screen lookup.

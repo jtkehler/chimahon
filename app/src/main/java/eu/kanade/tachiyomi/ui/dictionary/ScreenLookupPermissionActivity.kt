@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
@@ -28,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
@@ -35,22 +38,32 @@ import eu.kanade.tachiyomi.util.view.setComposeContent
 import tachiyomi.core.common.i18n.stringResource as contextStringResource
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 class ScreenLookupPermissionActivity : BaseActivity() {
 
     private var returnedFromOverlaySettings = false
     private var projectionRequested = false
+    private var pendingProjectionResult: Pair<Int, Intent>? = null
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        startScreenLookup(capturePlaybackAudio = granted)
+    }
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            ScreenLookupService.start(this, result.resultCode, data)
+            pendingProjectionResult = result.resultCode to data
+            requestAudioPermissionIfNeeded()
         } else {
             Toast.makeText(this, this.contextStringResource(MR.strings.screen_lookup_capture_denied), Toast.LENGTH_SHORT).show()
+            finish()
         }
-        finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,6 +122,37 @@ class ScreenLookupPermissionActivity : BaseActivity() {
             return
         }
         projectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+    }
+
+    private fun requestAudioPermissionIfNeeded() {
+        if (!shouldCapturePlaybackAudio()) {
+            startScreenLookup(capturePlaybackAudio = false)
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startScreenLookup(capturePlaybackAudio = true)
+            return
+        }
+        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun shouldCapturePlaybackAudio(): Boolean {
+        return isOverlayAudioCaptureEnabled(Injekt.get())
+    }
+
+    private fun startScreenLookup(capturePlaybackAudio: Boolean) {
+        val (resultCode, resultData) = pendingProjectionResult ?: run {
+            finish()
+            return
+        }
+        pendingProjectionResult = null
+        ScreenLookupService.start(
+            context = this,
+            resultCode = resultCode,
+            resultData = resultData,
+            capturePlaybackAudio = capturePlaybackAudio,
+        )
+        finish()
     }
 
 }
