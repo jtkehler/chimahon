@@ -15,6 +15,12 @@
 namespace {
 constexpr char kLogTag[] = "SentenceAudioNative";
 
+constexpr jint vad_centiseconds_to_milliseconds(float centiseconds) {
+    return static_cast<jint>(centiseconds * 10.0F);
+}
+
+static_assert(vad_centiseconds_to_milliseconds(704.0F) == 7040);
+
 struct SentenceAudioEngine {
     whisper_context * whisper = nullptr;
     whisper_vad_context * vad = nullptr;
@@ -203,13 +209,13 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeDetectSpeech(
     std::vector<jint> boundaries;
     boundaries.reserve(static_cast<size_t>(std::max(0, segment_count)) * 2U);
     for (int index = 0; index < segment_count; ++index) {
-        const float start_seconds = whisper_vad_segments_get_segment_t0(segments, index);
-        const float end_seconds = whisper_vad_segments_get_segment_t1(segments, index);
-        if (end_seconds <= start_seconds) {
+        const float start_centiseconds = whisper_vad_segments_get_segment_t0(segments, index);
+        const float end_centiseconds = whisper_vad_segments_get_segment_t1(segments, index);
+        if (end_centiseconds <= start_centiseconds) {
             continue;
         }
-        boundaries.push_back(static_cast<jint>(start_seconds * 1000.0F));
-        boundaries.push_back(static_cast<jint>(end_seconds * 1000.0F));
+        boundaries.push_back(vad_centiseconds_to_milliseconds(start_centiseconds));
+        boundaries.push_back(vad_centiseconds_to_milliseconds(end_centiseconds));
     }
     whisper_vad_free_segments(segments);
 
