@@ -35,22 +35,51 @@ class BufferedSentenceAudioProviderTest {
     }
 
     @Test
-    fun `missing capture history does not create the native pipeline`() = runBlocking {
+    fun `pre-roll is clamped to available capture history`() = runBlocking {
         val captureTimestampNanos = 20 * NANOS_PER_SECOND
         val ringBuffer = TimestampedPcmRingBuffer(SAMPLE_RATE_HZ, capacitySeconds = 30).apply {
             append(
-                source = ShortArray(SAMPLE_RATE_HZ),
+                source = ShortArray(10 * SAMPLE_RATE_HZ),
                 endTimestampNanos = captureTimestampNanos + AFTER_SECONDS * NANOS_PER_SECOND,
             )
         }
         val factoryCalls = AtomicInteger()
+        val backend = FakeBackend(
+            speech = listOf(SpeechSegment(0, 10_000)),
+            transcript = listOf(TranscriptSegment("これはテストです", 5_000, 6_000)),
+        )
         val provider = BufferedSentenceAudioProvider(ringBuffer, logWarning = NO_OP_LOGGER) {
             factoryCalls.incrementAndGet()
-            null
+            SentenceAudioInferencePipeline(backend)
         }
 
-        provider.create(request(captureTimestampNanos)) shouldBe null
-        factoryCalls.get() shouldBe 0
+        provider.create(request(captureTimestampNanos))?.bytes?.isNotEmpty() shouldBe true
+        factoryCalls.get() shouldBe 1
+        backend.detectedSampleCount shouldBe 10 * SAMPLE_RATE_HZ
+        provider.close()
+        Unit
+    }
+
+    @Test
+    fun `post-roll is clamped to the Anki button timestamp`() = runBlocking {
+        val captureTimestampNanos = 20 * NANOS_PER_SECOND
+        val ankiButtonTimestampNanos = captureTimestampNanos + 2 * NANOS_PER_SECOND
+        val backend = FakeBackend(
+            speech = listOf(SpeechSegment(0, 17_000)),
+            transcript = listOf(TranscriptSegment("これはテストです", 15_000, 16_000)),
+        )
+        val provider = BufferedSentenceAudioProvider(
+            completeWindow(captureTimestampNanos),
+            logWarning = NO_OP_LOGGER,
+        ) { SentenceAudioInferencePipeline(backend) }
+
+        provider.create(
+            request(
+                captureTimestampNanos = captureTimestampNanos,
+                ankiButtonTimestampNanos = ankiButtonTimestampNanos,
+            ),
+        )?.bytes?.isNotEmpty() shouldBe true
+        backend.detectedSampleCount shouldBe 17 * SAMPLE_RATE_HZ
         provider.close()
         Unit
     }
@@ -102,9 +131,14 @@ class BufferedSentenceAudioProviderTest {
         }
     }
 
-    private fun request(captureTimestampNanos: Long, sentence: String = "これはテストです") =
+    private fun request(
+        captureTimestampNanos: Long,
+        ankiButtonTimestampNanos: Long = captureTimestampNanos + AFTER_SECONDS * NANOS_PER_SECOND,
+        sentence: String = "これはテストです",
+    ) =
         SentenceAudioRequest(
             captureTimestampNanos = captureTimestampNanos,
+            ankiButtonTimestampNanos = ankiButtonTimestampNanos,
             sentence = sentence,
             beforeSeconds = BEFORE_SECONDS,
             afterSeconds = AFTER_SECONDS,
@@ -116,8 +150,12 @@ class BufferedSentenceAudioProviderTest {
     ) : SentenceAudioInferenceBackend {
         var transcribeCalls = 0
         var closed = false
+        var detectedSampleCount = 0
 
-        override fun detectSpeech(pcm16: ShortArray): List<SpeechSegment> = speech
+        override fun detectSpeech(pcm16: ShortArray): List<SpeechSegment> {
+            detectedSampleCount = pcm16.size
+            return speech
+        }
 
         override fun transcribe(pcm16: ShortArray, timeoutMillis: Long): List<TranscriptSegment> {
             transcribeCalls++

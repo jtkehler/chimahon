@@ -121,11 +121,40 @@ class TimestampedPcmRingBuffer(
     suspend fun awaitWindow(
         startTimestampNanos: Long,
         endTimestampNanos: Long,
+    ): PcmAudioWindow? = awaitWindow(
+        startTimestampNanos = startTimestampNanos,
+        endTimestampNanos = endTimestampNanos,
+        clampStartToRetainedAudio = false,
+    )
+
+    /**
+     * Suspends until [endTimestampNanos] is retained and clamps the requested
+     * start to the oldest audio still retained from this capture session.
+     */
+    suspend fun awaitClampedWindow(
+        startTimestampNanos: Long,
+        endTimestampNanos: Long,
+    ): PcmAudioWindow? = awaitWindow(
+        startTimestampNanos = startTimestampNanos,
+        endTimestampNanos = endTimestampNanos,
+        clampStartToRetainedAudio = true,
+    )
+
+    private suspend fun awaitWindow(
+        startTimestampNanos: Long,
+        endTimestampNanos: Long,
+        clampStartToRetainedAudio: Boolean,
     ): PcmAudioWindow? {
         require(startTimestampNanos < endTimestampNanos) { "Audio window must have positive duration" }
         while (true) {
             val observedUpdate = updates.value
-            when (val availability = availability(startTimestampNanos, endTimestampNanos)) {
+            when (
+                val availability = availability(
+                    startTimestampNanos,
+                    endTimestampNanos,
+                    clampStartToRetainedAudio,
+                )
+            ) {
                 is Availability.Ready -> return availability.window
                 Availability.MissingHistory -> return null
                 Availability.Waiting -> updates.first { it != observedUpdate }
@@ -137,12 +166,19 @@ class TimestampedPcmRingBuffer(
     private fun availability(
         startTimestampNanos: Long,
         endTimestampNanos: Long,
+        clampStartToRetainedAudio: Boolean,
     ): Availability {
         val newestEnd = newestSampleEndNanos ?: return Availability.Waiting
         val oldestStart = newestEnd - samplesToNanos(retainedSamples)
-        if (startTimestampNanos < oldestStart) return Availability.MissingHistory
+        val effectiveStart = if (clampStartToRetainedAudio) {
+            maxOf(startTimestampNanos, oldestStart)
+        } else {
+            if (startTimestampNanos < oldestStart) return Availability.MissingHistory
+            startTimestampNanos
+        }
+        if (effectiveStart >= endTimestampNanos) return Availability.MissingHistory
         if (endTimestampNanos > newestEnd) return Availability.Waiting
-        return extract(startTimestampNanos, endTimestampNanos)
+        return extract(effectiveStart, endTimestampNanos)
             ?.let(Availability::Ready)
             ?: Availability.MissingHistory
     }

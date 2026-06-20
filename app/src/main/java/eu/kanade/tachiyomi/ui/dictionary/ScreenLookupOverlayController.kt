@@ -531,10 +531,11 @@ private fun ScreenLookupOverlay(
                         matchOffset = off
                     },
                     onRequestSentenceAudio = sentenceAudioProvider?.let { provider ->
-                        { sentence ->
+                        { sentence, ankiButtonTimestampNanos ->
                             provider.create(
                                 SentenceAudioRequest(
                                     captureTimestampNanos = captureTimestampNanos,
+                                    ankiButtonTimestampNanos = ankiButtonTimestampNanos,
                                     sentence = sentence,
                                     beforeSeconds = dictionaryPreferences.overlayAudioBeforeSeconds().get(),
                                     afterSeconds = dictionaryPreferences.overlayAudioAfterSeconds().get(),
@@ -542,6 +543,7 @@ private fun ScreenLookupOverlay(
                             )
                         }
                     },
+                    ankiActionScope = scope,
                 )
             }
         }

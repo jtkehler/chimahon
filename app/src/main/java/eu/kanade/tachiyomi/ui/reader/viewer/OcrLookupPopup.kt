@@ -65,6 +65,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.ui.input.pointer.positionChange
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -114,10 +115,12 @@ fun OcrLookupPopup(
     onContentReadyChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
     titleId: String? = null,
-    onRequestSentenceAudio: (suspend (String) -> SentenceAudioResult?)? = null,
+    onRequestSentenceAudio: (suspend (String, Long) -> SentenceAudioResult?)? = null,
+    ankiActionScope: CoroutineScope? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val resolvedAnkiActionScope = ankiActionScope ?: scope
     var isLoading by remember {
         mutableStateOf(initialLookupDeferred != null && !initialLookupDeferred.isCompleted)
     }
@@ -403,12 +406,17 @@ fun OcrLookupPopup(
         )
     }
 
-    suspend fun requestSentenceAudio(): SentenceAudioResult? {
+    suspend fun requestSentenceAudio(ankiButtonTimestampNanos: Long): SentenceAudioResult? {
         if (!sentenceAudioFieldMapped) return null
         val provider = onRequestSentenceAudio ?: return null
-        return runCatching { provider(fullText) }
-            .onFailure { Log.w("DictionaryPopup", "Sentence audio preparation failed", it) }
-            .getOrNull()
+        return try {
+            provider(fullText, ankiButtonTimestampNanos)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.w("DictionaryPopup", "Sentence audio preparation failed", error)
+            null
+        }
     }
 
     fun performAnkiLookup(
@@ -419,6 +427,7 @@ fun OcrLookupPopup(
         forceOpen: Boolean = false,
     ) {
         val result = results.getOrNull(index) ?: return
+        val ankiButtonTimestampNanos = android.os.SystemClock.elapsedRealtimeNanos()
 
         // Local helper to update the state, which triggers the optimized JS call via DictionaryEntryWebView
         fun updateStatus(expression: String) {
@@ -435,8 +444,8 @@ fun OcrLookupPopup(
         val shouldUseCropMode = screenshotFieldMapped && cropMode == "crop" && onCropTriggered != null
 
         if (shouldUseCropMode) {
-            scope.launch {
-                val sentenceAudio = requestSentenceAudio()
+            resolvedAnkiActionScope.launch {
+                val sentenceAudio = requestSentenceAudio(ankiButtonTimestampNanos)
                 val ankiResult = AnkiCardCreator.addToAnki(
                     context = context,
                     result = result,
@@ -484,9 +493,9 @@ fun OcrLookupPopup(
                 }
             }
         } else {
-            scope.launch {
+            resolvedAnkiActionScope.launch {
                 val encoding = onRequestScreenshot?.invoke()?.let { ImageEncoder.encode(it) }
-                val sentenceAudio = requestSentenceAudio()
+                val sentenceAudio = requestSentenceAudio(ankiButtonTimestampNanos)
                 val ankiResult = AnkiCardCreator.addToAnki(
                     context = context,
                     result = result,

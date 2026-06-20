@@ -2515,6 +2515,12 @@ object SettingsDictionaryScreen : SearchableSettings {
                     },
                     enabled = supported,
                 ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = prefs.overlayAudioVadOnly(),
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_only),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_vad_only_summary),
+                    enabled = supported && enabled,
+                ),
                 Preference.PreferenceItem.SliderPreference(
                     value = beforeSeconds,
                     title = stringResource(MR.strings.pref_overlay_audio_before),

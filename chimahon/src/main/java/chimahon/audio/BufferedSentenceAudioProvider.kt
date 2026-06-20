@@ -44,12 +44,14 @@ class BufferedSentenceAudioProvider(
         val beforeNanos = request.beforeSeconds.toDurationNanos() ?: return null
         val afterNanos = request.afterSeconds.toDurationNanos() ?: return null
         val startTimestampNanos = request.captureTimestampNanos - beforeNanos
-        val endTimestampNanos = request.captureTimestampNanos + afterNanos
+        val endTimestampNanos = minOf(
+            request.captureTimestampNanos + afterNanos,
+            request.ankiButtonTimestampNanos,
+        )
         if (startTimestampNanos >= endTimestampNanos) return null
 
-        val waitMillis = request.afterSeconds.toLong() * MILLIS_PER_SECOND + windowWaitGraceMillis
-        val window = withTimeoutOrNull(waitMillis) {
-            ringBuffer.awaitWindow(startTimestampNanos, endTimestampNanos)
+        val window = withTimeoutOrNull(windowWaitGraceMillis) {
+            ringBuffer.awaitClampedWindow(startTimestampNanos, endTimestampNanos)
         }
         if (window == null) {
             logWarning("Sentence audio unavailable: requested playback window is incomplete", null)
@@ -153,7 +155,6 @@ class BufferedSentenceAudioProvider(
 
     private companion object {
         const val TAG = "BufferedSentenceAudio"
-        const val MILLIS_PER_SECOND = 1_000L
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
         const val DEFAULT_WINDOW_WAIT_GRACE_MILLIS = 1_000L

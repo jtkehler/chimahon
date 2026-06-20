@@ -209,7 +209,8 @@ class ScreenLookupService : Service() {
 
     private fun startPlaybackAudioCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        if (!isOverlayAudioCaptureEnabled(Injekt.get())) return
+        val preferences = Injekt.get<DictionaryPreferences>()
+        if (!isOverlayAudioCaptureEnabled(preferences)) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             return
         }
@@ -218,16 +219,18 @@ class ScreenLookupService : Service() {
         if (capture.start()) {
             playbackAudioCapture = capture
             val modelManager = Injekt.get<OverlayAudioModelManager>()
+            val vadOnly = preferences.overlayAudioVadOnly().get()
             sentenceAudioProvider = BufferedSentenceAudioProvider(capture.ringBuffer) {
                 val modelFiles = modelManager.modelFiles()
-                if (!modelFiles.whisper.isFile || !modelFiles.vad.isFile) {
+                if (!modelFiles.vad.isFile || (!vadOnly && !modelFiles.whisper.isFile)) {
                     null
                 } else {
                     SentenceAudioInferencePipeline(
                         NativeSentenceAudioBackend(
-                            whisperModel = modelFiles.whisper,
+                            whisperModel = modelFiles.whisper.takeUnless { vadOnly },
                             vadModel = modelFiles.vad,
                         ),
+                        vadOnly = vadOnly,
                     )
                 }
             }

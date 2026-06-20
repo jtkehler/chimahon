@@ -2,6 +2,7 @@ package chimahon.audio
 
 data class SentenceAudioRequest(
     val captureTimestampNanos: Long,
+    val ankiButtonTimestampNanos: Long,
     val sentence: String,
     val beforeSeconds: Int,
     val afterSeconds: Int,

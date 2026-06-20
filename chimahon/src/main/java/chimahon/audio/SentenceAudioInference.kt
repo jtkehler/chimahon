@@ -49,6 +49,7 @@ class SentenceAudioInferencePipeline(
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
     private val minimumMatchScore: Double = DEFAULT_MINIMUM_MATCH_SCORE,
+    private val vadOnly: Boolean = false,
 ) : Closeable {
     private val inferenceMutex = Mutex()
 
@@ -74,6 +75,16 @@ class SentenceAudioInferencePipeline(
             val speechSegments = backend.detectSpeech(request.pcm16)
                 .filter { it.endMillis > it.startMillis }
             if (speechSegments.isEmpty()) return null
+
+            if (vadOnly) {
+                val segment = speechSegments
+                    .filter { it.startMillis <= request.ocrOffsetMillis }
+                    .maxWithOrNull(compareBy<SpeechSegment> { it.startMillis }.thenBy { it.endMillis })
+                    ?: return null
+                val trimmedPcm = trimPcm(request.pcm16, segment.startMillis, segment.endMillis)
+                    ?: return null
+                return SentenceAudioResult(bytes = Pcm16Wav.encode(trimmedPcm))
+            }
 
             val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
             val remainingMillis = (timeoutMillis - elapsedMillis).coerceAtLeast(1L)

@@ -66,6 +66,40 @@ class SentenceAudioInferenceTest {
     }
 
     @Test
+    fun `VAD only returns the most recent speech segment before OCR without Whisper`() = runBlocking {
+        val backend = FakeBackend(
+            speech = listOf(
+                SpeechSegment(100, 500),
+                SpeechSegment(1_200, 1_700),
+                SpeechSegment(2_100, 2_600),
+            ),
+        )
+        val pipeline = SentenceAudioInferencePipeline(backend, vadOnly = true)
+
+        val result = pipeline.create(
+            request(
+                pcm16 = ShortArray(48_000),
+                ocrOffsetMillis = 2_000,
+            ),
+        )
+
+        result?.bytes?.size shouldBe 44 + 8_000 * Short.SIZE_BYTES
+        backend.transcribeCalls shouldBe 0
+        pipeline.close()
+    }
+
+    @Test
+    fun `VAD only ignores speech that starts after OCR`() = runBlocking {
+        val backend = FakeBackend(speech = listOf(SpeechSegment(600, 1_000)))
+        val pipeline = SentenceAudioInferencePipeline(backend, vadOnly = true)
+
+        pipeline.create(request(ocrOffsetMillis = 500)) shouldBe null
+
+        backend.transcribeCalls shouldBe 0
+        pipeline.close()
+    }
+
+    @Test
     fun `equal alignment scores prefer the span nearest the OCR timestamp`() {
         val match = SentenceAudioAligner.findBestMatch(
             sentence = "同じ台詞",

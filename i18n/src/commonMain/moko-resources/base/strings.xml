@@ -303,6 +303,8 @@
     <string name="pref_overlay_audio_enabled">Mine Overlay Audio</string>
     <string name="pref_overlay_audio_enabled_summary">Capture game or media playback for `{sentence-audio}` while screen lookup is running</string>
     <string name="pref_overlay_audio_android_10_required">Playback capture requires Android 10 or newer</string>
+    <string name="pref_overlay_audio_vad_only">VAD only</string>
+    <string name="pref_overlay_audio_vad_only_summary">Skip Whisper and use the most recent Silero speech segment at or before the OCR timestamp</string>
     <string name="pref_overlay_audio_before">Audio before OCR capture</string>
     <string name="pref_overlay_audio_after">Audio after OCR capture</string>
     <string name="pref_overlay_audio_seconds">%1$d seconds</string>

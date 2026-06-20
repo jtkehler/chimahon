@@ -31,6 +31,8 @@ class DictionaryPreferences(
 
     fun mineOverlayAudio() = preferenceStore.getBoolean("pref_mine_overlay_audio", false)
 
+    fun overlayAudioVadOnly() = preferenceStore.getBoolean("pref_overlay_audio_vad_only", false)
+
     fun overlayAudioBeforeSeconds() = preferenceStore.getInt("pref_overlay_audio_before_seconds", 15)
 
     fun overlayAudioAfterSeconds() = preferenceStore.getInt("pref_overlay_audio_after_seconds", 5)

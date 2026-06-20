@@ -16,9 +16,10 @@ namespace {
 constexpr char kLogTag[] = "SentenceAudioNative";
 constexpr float kVadThreshold = 0.60F;
 constexpr int kVadMinSpeechDurationMs = 300;
-constexpr int kVadMinSilenceDurationMs = 250;
+// Keep brief natural pauses inside one utterance while splitting longer gaps between dialogue lines.
+constexpr int kVadMinSilenceDurationMs = 700;
 constexpr float kVadMaxSpeechDurationSeconds = 20.0F;
-constexpr int kVadSpeechPaddingMs = 80;
+constexpr int kVadSpeechPaddingMs = 100;
 constexpr float kVadSamplesOverlapSeconds = 0.10F;
 
 struct SentenceAudioEngine {
@@ -111,20 +112,22 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeCreate(
         jint thread_count) {
     const std::string whisper_path = to_string(env, whisper_model_path);
     const std::string vad_path = to_string(env, vad_model_path);
-    if (whisper_path.empty() || vad_path.empty()) {
+    if (vad_path.empty()) {
         return 0;
     }
 
     auto engine = std::make_unique<SentenceAudioEngine>();
     engine->thread_count = std::max(1, static_cast<int>(thread_count));
 
-    whisper_context_params whisper_params = whisper_context_default_params();
-    whisper_params.use_gpu = false;
-    whisper_params.flash_attn = false;
-    engine->whisper = whisper_init_from_file_with_params(whisper_path.c_str(), whisper_params);
-    if (engine->whisper == nullptr) {
-        log_error("Unable to load Whisper model");
-        return 0;
+    if (!whisper_path.empty()) {
+        whisper_context_params whisper_params = whisper_context_default_params();
+        whisper_params.use_gpu = false;
+        whisper_params.flash_attn = false;
+        engine->whisper = whisper_init_from_file_with_params(whisper_path.c_str(), whisper_params);
+        if (engine->whisper == nullptr) {
+            log_error("Unable to load Whisper model");
+            return 0;
+        }
     }
 
     whisper_vad_context_params vad_context_params = whisper_vad_default_context_params();
@@ -214,7 +217,7 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeTranscribe(
         jshortArray pcm16,
         jlong timeout_millis) {
     SentenceAudioEngine * engine = from_handle(handle);
-    if (engine == nullptr) {
+    if (engine == nullptr || engine->whisper == nullptr) {
         return empty_transcript_array(env);
     }
 

@@ -9,17 +9,17 @@ internal data class NativeTranscriptSegment(
 )
 
 class NativeSentenceAudioBackend(
-    whisperModel: File,
+    whisperModel: File?,
     vadModel: File,
     threadCount: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4),
 ) : SentenceAudioInferenceBackend {
     private var nativeHandle: Long
 
     init {
-        require(whisperModel.isFile) { "Whisper model is missing" }
+        require(whisperModel == null || whisperModel.isFile) { "Whisper model is missing" }
         require(vadModel.isFile) { "Silero VAD model is missing" }
         nativeHandle = nativeCreate(
-            whisperModel.absolutePath,
+            whisperModel?.absolutePath,
             vadModel.absolutePath,
             threadCount.coerceAtLeast(1),
         )
@@ -57,7 +57,7 @@ class NativeSentenceAudioBackend(
     }
 
     private external fun nativeCreate(
-        whisperModelPath: String,
+        whisperModelPath: String?,
         vadModelPath: String,
         threadCount: Int,
     ): Long
