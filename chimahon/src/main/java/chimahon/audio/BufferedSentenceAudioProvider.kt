@@ -60,8 +60,8 @@ class BufferedSentenceAudioProvider(
             logWarning("Sentence audio unavailable: requested playback window is incomplete", null)
             return null
         }
-        if (window.sampleRateHz != SentenceAudioInferencePipeline.SAMPLE_RATE_HZ) {
-            logWarning("Sentence audio unavailable: playback sample rate is unsupported", null)
+        if (window.sampleRateHz < SentenceAudioInferencePipeline.SAMPLE_RATE_HZ) {
+            logWarning("Sentence audio unavailable: playback sample rate is below the inference rate", null)
             return null
         }
 
@@ -75,14 +75,31 @@ class BufferedSentenceAudioProvider(
 
         val currentPipeline = acquirePipeline() ?: return null
         return try {
-            currentPipeline.create(
+            val inferencePcm = window.samples.downsampleMono(
+                sourceSampleRateHz = window.sampleRateHz,
+                targetSampleRateHz = SentenceAudioInferencePipeline.SAMPLE_RATE_HZ,
+            )
+            val segment = currentPipeline.findSegment(
                 SentenceAudioInferenceRequest(
-                    pcm16 = window.samples,
+                    pcm16 = inferencePcm,
                     sentence = request.sentence,
                     ocrOffsetMillis = (request.captureTimestampNanos - window.startTimestampNanos) /
                         NANOS_PER_MILLISECOND,
                 ),
-            )
+            ) ?: return null
+            val outputPcm = window.samples.sliceMillis(
+                startMillis = segment.startMillis,
+                endMillis = segment.endMillis,
+                sampleRateHz = window.sampleRateHz,
+            ) ?: return null
+            SentenceAudioResult(
+                bytes = Pcm16Wav.encode(outputPcm, sampleRateHz = window.sampleRateHz),
+            ).also { result ->
+                logDebug(
+                    "High-quality sentence audio created: segment=${segment.startMillis}-${segment.endMillis}ms, " +
+                        "sampleRateHz=${window.sampleRateHz}, samples=${outputPcm.size}, bytes=${result.bytes.size}",
+                )
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -171,6 +188,42 @@ class BufferedSentenceAudioProvider(
         Math.multiplyExact(toLong(), NANOS_PER_SECOND)
     }.getOrNull()
 
+    private fun ShortArray.downsampleMono(
+        sourceSampleRateHz: Int,
+        targetSampleRateHz: Int,
+    ): ShortArray {
+        require(sourceSampleRateHz >= targetSampleRateHz)
+        if (sourceSampleRateHz == targetSampleRateHz) return copyOf()
+        val outputSize = (size.toLong() * targetSampleRateHz / sourceSampleRateHz).toInt()
+        return ShortArray(outputSize) { outputIndex ->
+            val sourceStart = (outputIndex.toLong() * sourceSampleRateHz / targetSampleRateHz).toInt()
+            val sourceEnd = (((outputIndex + 1L) * sourceSampleRateHz) / targetSampleRateHz)
+                .toInt()
+                .coerceAtMost(size)
+            var sum = 0L
+            for (sourceIndex in sourceStart until sourceEnd) sum += this[sourceIndex]
+            (sum / (sourceEnd - sourceStart)).toShort()
+        }
+    }
+
+    private fun ShortArray.sliceMillis(
+        startMillis: Long,
+        endMillis: Long,
+        sampleRateHz: Int,
+    ): ShortArray? {
+        val startSample = (startMillis.coerceAtLeast(0) * sampleRateHz / MILLIS_PER_SECOND)
+            .coerceAtMost(size.toLong())
+            .toInt()
+        val endSample = (
+            (endMillis.coerceAtLeast(0) * sampleRateHz + MILLIS_PER_SECOND - 1) /
+                MILLIS_PER_SECOND
+            )
+            .coerceAtMost(size.toLong())
+            .toInt()
+        if (endSample <= startSample) return null
+        return copyOfRange(startSample, endSample)
+    }
+
     private val PcmAudioWindow.durationMillis: Long
         get() = (endTimestampNanos - startTimestampNanos) / NANOS_PER_MILLISECOND
 
@@ -202,6 +255,7 @@ class BufferedSentenceAudioProvider(
         const val TAG = "BufferedSentenceAudio"
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
+        const val MILLIS_PER_SECOND = 1_000L
         const val PCM_NOISE_FLOOR = 128
         const val DEFAULT_WINDOW_WAIT_GRACE_MILLIS = 1_000L
         val DEFAULT_LOG_DEBUG: (String) -> Unit = { message ->

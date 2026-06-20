@@ -22,6 +22,11 @@ data class SentenceAudioInferenceRequest(
     val ocrOffsetMillis: Long,
 )
 
+data class SentenceAudioInferenceResult(
+    val startMillis: Long,
+    val endMillis: Long,
+)
+
 data class SpeechSegment(
     val startMillis: Long,
     val endMillis: Long,
@@ -61,11 +66,11 @@ class SentenceAudioInferencePipeline(
         require(minimumMatchScore in 0.0..1.0) { "Match score must be between zero and one" }
     }
 
-    suspend fun create(request: SentenceAudioInferenceRequest): SentenceAudioResult? = withContext(dispatcher) {
+    suspend fun findSegment(request: SentenceAudioInferenceRequest): SentenceAudioInferenceResult? = withContext(dispatcher) {
         try {
             withTimeout(timeoutMillis) {
                 inferenceMutex.withLock {
-                    createSerialized(request)
+                    findSegmentSerialized(request)
                 }
             }
         } catch (_: TimeoutCancellationException) {
@@ -74,7 +79,7 @@ class SentenceAudioInferencePipeline(
         }
     }
 
-    private fun createSerialized(request: SentenceAudioInferenceRequest): SentenceAudioResult? {
+    private fun findSegmentSerialized(request: SentenceAudioInferenceRequest): SentenceAudioInferenceResult? {
         if (request.pcm16.isEmpty() || request.sentence.isBlank()) {
             logDebug("Inference skipped: empty PCM or sentence")
             return null
@@ -109,17 +114,10 @@ class SentenceAudioInferencePipeline(
                     )
                     return null
                 }
-                val trimmedPcm = trimPcm(request.pcm16, segment.startMillis, segment.endMillis)
-                if (trimmedPcm == null) {
-                    logDebug("Inference produced no audio: selected VAD segment could not be trimmed")
-                    return null
-                }
-                val result = SentenceAudioResult(bytes = Pcm16Wav.encode(trimmedPcm))
                 logDebug(
-                    "VAD-only audio created: segment=${segment.startMillis}-${segment.endMillis}ms, " +
-                        "samples=${trimmedPcm.size}, bytes=${result.bytes.size}",
+                    "VAD-only segment selected: segment=${segment.startMillis}-${segment.endMillis}ms",
                 )
-                return result
+                return segment.toInferenceResult()
             }
 
             val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
@@ -136,20 +134,19 @@ class SentenceAudioInferencePipeline(
                 return null
             }
 
-            if (speechSegments.none { it.overlaps(match.startMillis, match.endMillis) }) {
+            val matchingSpeechSegments = speechSegments.filter { it.overlaps(match.startMillis, match.endMillis) }
+            if (matchingSpeechSegments.isEmpty()) {
                 logDebug("Inference produced no audio: transcript match did not overlap VAD speech")
                 return null
             }
 
-            val trimmedPcm = trimPcm(request.pcm16, match.startMillis, match.endMillis)
-            if (trimmedPcm == null) {
-                logDebug("Inference produced no audio: aligned segment could not be trimmed")
-                return null
-            }
-            SentenceAudioResult(bytes = Pcm16Wav.encode(trimmedPcm)).also { result ->
+            SentenceAudioInferenceResult(
+                startMillis = matchingSpeechSegments.minOf { it.startMillis },
+                endMillis = matchingSpeechSegments.maxOf { it.endMillis },
+            ).also { result ->
                 logDebug(
-                    "Aligned sentence audio created: segment=${match.startMillis}-${match.endMillis}ms, " +
-                        "score=${match.score}, samples=${trimmedPcm.size}, bytes=${result.bytes.size}",
+                    "Aligned sentence segment selected: match=${match.startMillis}-${match.endMillis}ms, " +
+                        "vad=${result.startMillis}-${result.endMillis}ms, score=${match.score}",
                 )
             }
         } catch (error: CancellationException) {
@@ -164,20 +161,10 @@ class SentenceAudioInferencePipeline(
         backend.close()
     }
 
-    private fun trimPcm(pcm16: ShortArray, startMillis: Long, endMillis: Long): ShortArray? {
-        val startSample = millisToSample(startMillis).coerceIn(0, pcm16.size)
-        val endSample = millisToSample(endMillis).coerceIn(0, pcm16.size)
-        if (endSample <= startSample) return null
-        return pcm16.copyOfRange(startSample, endSample)
-    }
-
-    private fun millisToSample(millis: Long): Int =
-        ((millis.coerceAtLeast(0) * SAMPLE_RATE_HZ) / 1_000L)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-
     private fun SpeechSegment.overlaps(startMillis: Long, endMillis: Long): Boolean =
         this.startMillis < endMillis && this.endMillis > startMillis
+
+    private fun SpeechSegment.toInferenceResult() = SentenceAudioInferenceResult(startMillis, endMillis)
 
     private fun List<SpeechSegment>.summary(): String {
         if (isEmpty()) return "[]"
@@ -292,7 +279,8 @@ internal object SentenceAudioAligner {
 }
 
 internal object Pcm16Wav {
-    fun encode(samples: ShortArray): ByteArray {
+    fun encode(samples: ShortArray, sampleRateHz: Int): ByteArray {
+        require(sampleRateHz > 0) { "sampleRateHz must be positive" }
         val pcmBytes = samples.size * Short.SIZE_BYTES
         return ByteBuffer.allocate(WAV_HEADER_BYTES + pcmBytes)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -304,8 +292,8 @@ internal object Pcm16Wav {
                 putInt(16)
                 putShort(1)
                 putShort(1)
-                putInt(SentenceAudioInferencePipeline.SAMPLE_RATE_HZ)
-                putInt(SentenceAudioInferencePipeline.SAMPLE_RATE_HZ * Short.SIZE_BYTES)
+                putInt(sampleRateHz)
+                putInt(sampleRateHz * Short.SIZE_BYTES)
                 putShort(Short.SIZE_BYTES.toShort())
                 putShort(Short.SIZE_BITS.toShort())
                 put("data".toByteArray(Charsets.US_ASCII))

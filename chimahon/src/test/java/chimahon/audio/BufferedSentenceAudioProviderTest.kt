@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -15,7 +17,7 @@ class BufferedSentenceAudioProviderTest {
         val captureTimestampNanos = 20 * NANOS_PER_SECOND
         val ringBuffer = completeWindow(captureTimestampNanos)
         val backend = FakeBackend(
-            speech = listOf(SpeechSegment(0, 20_000)),
+            speech = listOf(SpeechSegment(15_000, 16_000)),
             transcript = listOf(
                 TranscriptSegment("同じ台詞", 1_000, 1_500),
                 TranscriptSegment("同じ台詞", 15_000, 16_000),
@@ -27,7 +29,13 @@ class BufferedSentenceAudioProviderTest {
 
         val result = provider.create(request(captureTimestampNanos, sentence = "同じ台詞"))
 
-        result?.bytes?.size shouldBe WAV_HEADER_BYTES + SAMPLE_RATE_HZ * Short.SIZE_BYTES
+        result?.bytes?.size shouldBe WAV_HEADER_BYTES + CAPTURE_SAMPLE_RATE_HZ * Short.SIZE_BYTES
+        ByteBuffer.wrap(result!!.bytes, 24, 4).order(ByteOrder.LITTLE_ENDIAN).int shouldBe
+            CAPTURE_SAMPLE_RATE_HZ
+        ByteBuffer.wrap(result.bytes, WAV_HEADER_BYTES, Short.SIZE_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .short shouldBe 16_000
+        backend.detectedSampleCount shouldBe (BEFORE_SECONDS + AFTER_SECONDS) * INFERENCE_SAMPLE_RATE_HZ
         backend.transcribeCalls shouldBe 1
         provider.close()
         backend.closed shouldBe true
@@ -37,9 +45,9 @@ class BufferedSentenceAudioProviderTest {
     @Test
     fun `pre-roll is clamped to available capture history`() = runBlocking {
         val captureTimestampNanos = 20 * NANOS_PER_SECOND
-        val ringBuffer = TimestampedPcmRingBuffer(SAMPLE_RATE_HZ, capacitySeconds = 30).apply {
+        val ringBuffer = TimestampedPcmRingBuffer(CAPTURE_SAMPLE_RATE_HZ, capacitySeconds = 30).apply {
             append(
-                source = ShortArray(10 * SAMPLE_RATE_HZ),
+                source = ShortArray(10 * CAPTURE_SAMPLE_RATE_HZ),
                 endTimestampNanos = captureTimestampNanos + AFTER_SECONDS * NANOS_PER_SECOND,
             )
         }
@@ -55,7 +63,7 @@ class BufferedSentenceAudioProviderTest {
 
         provider.create(request(captureTimestampNanos))?.bytes?.isNotEmpty() shouldBe true
         factoryCalls.get() shouldBe 1
-        backend.detectedSampleCount shouldBe 10 * SAMPLE_RATE_HZ
+        backend.detectedSampleCount shouldBe 10 * INFERENCE_SAMPLE_RATE_HZ
         provider.close()
         Unit
     }
@@ -79,7 +87,7 @@ class BufferedSentenceAudioProviderTest {
                 ankiButtonTimestampNanos = ankiButtonTimestampNanos,
             ),
         )?.bytes?.isNotEmpty() shouldBe true
-        backend.detectedSampleCount shouldBe 17 * SAMPLE_RATE_HZ
+        backend.detectedSampleCount shouldBe 17 * INFERENCE_SAMPLE_RATE_HZ
         provider.close()
         Unit
     }
@@ -123,9 +131,11 @@ class BufferedSentenceAudioProviderTest {
     }
 
     private fun completeWindow(captureTimestampNanos: Long): TimestampedPcmRingBuffer {
-        return TimestampedPcmRingBuffer(SAMPLE_RATE_HZ, capacitySeconds = 30).apply {
+        return TimestampedPcmRingBuffer(CAPTURE_SAMPLE_RATE_HZ, capacitySeconds = 30).apply {
             append(
-                source = ShortArray((BEFORE_SECONDS + AFTER_SECONDS) * SAMPLE_RATE_HZ),
+                source = ShortArray((BEFORE_SECONDS + AFTER_SECONDS) * CAPTURE_SAMPLE_RATE_HZ) {
+                    (it % 32_000).toShort()
+                },
                 endTimestampNanos = captureTimestampNanos + AFTER_SECONDS * NANOS_PER_SECOND,
             )
         }
@@ -168,7 +178,8 @@ class BufferedSentenceAudioProviderTest {
     }
 
     private companion object {
-        const val SAMPLE_RATE_HZ = 16_000
+        const val CAPTURE_SAMPLE_RATE_HZ = 48_000
+        const val INFERENCE_SAMPLE_RATE_HZ = 16_000
         const val BEFORE_SECONDS = 15
         const val AFTER_SECONDS = 5
         const val NANOS_PER_SECOND = 1_000_000_000L

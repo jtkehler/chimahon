@@ -1,13 +1,10 @@
 package chimahon.audio
 
-import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
 
 class SentenceAudioInferenceTest {
@@ -17,7 +14,7 @@ class SentenceAudioInferenceTest {
         val backend = FakeBackend(speech = emptyList())
         val pipeline = SentenceAudioInferencePipeline(backend)
 
-        pipeline.create(request()) shouldBe null
+        pipeline.findSegment(request()) shouldBe null
 
         backend.transcribeCalls shouldBe 0
         pipeline.close()
@@ -33,13 +30,13 @@ class SentenceAudioInferenceTest {
         )
         val pipeline = SentenceAudioInferencePipeline(backend)
 
-        pipeline.create(request(sentence = "これはテストです")) shouldBe null
+        pipeline.findSegment(request(sentence = "これはテストです")) shouldBe null
         backend.transcribeCalls shouldBe 1
         pipeline.close()
     }
 
     @Test
-    fun `successful alignment returns only the matched PCM as WAV`() = runBlocking {
+    fun `successful alignment returns the overlapping VAD timestamps`() = runBlocking {
         val pcm = ShortArray(32_000) { it.toShort() }
         val backend = FakeBackend(
             speech = listOf(SpeechSegment(400, 1_100)),
@@ -47,7 +44,7 @@ class SentenceAudioInferenceTest {
         )
         val pipeline = SentenceAudioInferencePipeline(backend)
 
-        val result = pipeline.create(
+        val result = pipeline.findSegment(
             request(
                 pcm16 = pcm,
                 sentence = "これはテストです",
@@ -55,13 +52,7 @@ class SentenceAudioInferenceTest {
             ),
         )
 
-        result?.extension shouldBe "wav"
-        result?.bytes?.copyOfRange(0, 4)?.toList() shouldContainExactly
-            "RIFF".toByteArray().toList()
-        result?.bytes?.size shouldBe 44 + 8_000 * Short.SIZE_BYTES
-        ByteBuffer.wrap(result!!.bytes, 40, 4)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .int shouldBe 8_000 * Short.SIZE_BYTES
+        result shouldBe SentenceAudioInferenceResult(startMillis = 400, endMillis = 1_100)
         pipeline.close()
     }
 
@@ -76,14 +67,14 @@ class SentenceAudioInferenceTest {
         )
         val pipeline = SentenceAudioInferencePipeline(backend, vadOnly = true)
 
-        val result = pipeline.create(
+        val result = pipeline.findSegment(
             request(
                 pcm16 = ShortArray(48_000),
                 ocrOffsetMillis = 2_000,
             ),
         )
 
-        result?.bytes?.size shouldBe 44 + 8_000 * Short.SIZE_BYTES
+        result shouldBe SentenceAudioInferenceResult(startMillis = 1_200, endMillis = 1_700)
         backend.transcribeCalls shouldBe 0
         pipeline.close()
     }
@@ -93,7 +84,7 @@ class SentenceAudioInferenceTest {
         val backend = FakeBackend(speech = listOf(SpeechSegment(600, 1_000)))
         val pipeline = SentenceAudioInferencePipeline(backend, vadOnly = true)
 
-        pipeline.create(request(ocrOffsetMillis = 500)) shouldBe null
+        pipeline.findSegment(request(ocrOffsetMillis = 500)) shouldBe null
 
         backend.transcribeCalls shouldBe 0
         pipeline.close()
@@ -125,8 +116,8 @@ class SentenceAudioInferenceTest {
         val pipeline = SentenceAudioInferencePipeline(backend)
 
         listOf(
-            async { pipeline.create(request()) },
-            async { pipeline.create(request()) },
+            async { pipeline.findSegment(request()) },
+            async { pipeline.findSegment(request()) },
         ).awaitAll()
 
         backend.maximumConcurrentTranscriptions.get() shouldBe 1

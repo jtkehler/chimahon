@@ -139,8 +139,8 @@ internal class PlaybackAudioCapture(
     }
 
     private companion object {
-        const val SAMPLE_RATE_HZ = 16_000
+        const val SAMPLE_RATE_HZ = 48_000
         const val BUFFER_DURATION_SECONDS = 180
-        const val READ_BUFFER_SAMPLES = 2_048
+        const val READ_BUFFER_SAMPLES = 4_096
     }
 }
