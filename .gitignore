@@ -39,3 +39,4 @@ AGENTS.md
 /AnkiconnectAndroid
 *.patch
 /docs
+.codex-logs
