@@ -35,7 +35,8 @@ class BufferedSentenceAudioProviderTest {
         ByteBuffer.wrap(result.bytes, WAV_HEADER_BYTES, Short.SIZE_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN)
             .short shouldBe 16_000
-        backend.detectedSampleCount shouldBe (BEFORE_SECONDS + AFTER_SECONDS) * INFERENCE_SAMPLE_RATE_HZ
+        backend.detectSpeechCalls shouldBe 0
+        backend.transcribedSampleCount shouldBe (BEFORE_SECONDS + AFTER_SECONDS) * INFERENCE_SAMPLE_RATE_HZ
         backend.transcribeCalls shouldBe 1
         provider.close()
         backend.closed shouldBe true
@@ -63,7 +64,8 @@ class BufferedSentenceAudioProviderTest {
 
         provider.create(request(captureTimestampNanos))?.bytes?.isNotEmpty() shouldBe true
         factoryCalls.get() shouldBe 1
-        backend.detectedSampleCount shouldBe 10 * INFERENCE_SAMPLE_RATE_HZ
+        backend.detectSpeechCalls shouldBe 0
+        backend.transcribedSampleCount shouldBe 10 * INFERENCE_SAMPLE_RATE_HZ
         provider.close()
         Unit
     }
@@ -87,7 +89,8 @@ class BufferedSentenceAudioProviderTest {
                 ankiButtonTimestampNanos = ankiButtonTimestampNanos,
             ),
         )?.bytes?.isNotEmpty() shouldBe true
-        backend.detectedSampleCount shouldBe 17 * INFERENCE_SAMPLE_RATE_HZ
+        backend.detectSpeechCalls shouldBe 0
+        backend.transcribedSampleCount shouldBe 17 * INFERENCE_SAMPLE_RATE_HZ
         provider.close()
         Unit
     }
@@ -158,17 +161,19 @@ class BufferedSentenceAudioProviderTest {
         private val speech: List<SpeechSegment>,
         private val transcript: List<TranscriptSegment>,
     ) : SentenceAudioInferenceBackend {
+        var detectSpeechCalls = 0
         var transcribeCalls = 0
         var closed = false
-        var detectedSampleCount = 0
+        var transcribedSampleCount = 0
 
         override fun detectSpeech(pcm16: ShortArray): List<SpeechSegment> {
-            detectedSampleCount = pcm16.size
+            detectSpeechCalls++
             return speech
         }
 
         override fun transcribe(pcm16: ShortArray, timeoutMillis: Long): List<TranscriptSegment> {
             transcribeCalls++
+            transcribedSampleCount = pcm16.size
             return transcript
         }
 

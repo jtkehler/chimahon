@@ -10,16 +10,32 @@ import java.util.concurrent.atomic.AtomicInteger
 class SentenceAudioInferenceTest {
 
     @Test
-    fun `unvoiced samples never invoke Whisper`() = runBlocking {
-        val backend = FakeBackend(speech = emptyList())
+    fun `normal Whisper mode transcribes without explicit speech detection`() = runBlocking {
+        val backend = FakeBackend(
+            speech = emptyList(),
+            transcript = listOf(TranscriptSegment("これはテストです", 250, 750)),
+        )
+        val pipeline = SentenceAudioInferencePipeline(backend)
+
+        pipeline.findSegment(request()) shouldBe SentenceAudioInferenceResult(250, 750)
+
+        backend.detectSpeechCalls shouldBe 0
+        backend.transcribeCalls shouldBe 1
+        pipeline.close()
+        backend.closed shouldBe true
+        Unit
+    }
+
+    @Test
+    fun `normal Whisper mode returns no audio when built-in VAD produces no transcript`() = runBlocking {
+        val backend = FakeBackend(speech = emptyList(), transcript = emptyList())
         val pipeline = SentenceAudioInferencePipeline(backend)
 
         pipeline.findSegment(request()) shouldBe null
 
-        backend.transcribeCalls shouldBe 0
+        backend.detectSpeechCalls shouldBe 0
+        backend.transcribeCalls shouldBe 1
         pipeline.close()
-        backend.closed shouldBe true
-        Unit
     }
 
     @Test
@@ -31,15 +47,16 @@ class SentenceAudioInferenceTest {
         val pipeline = SentenceAudioInferencePipeline(backend)
 
         pipeline.findSegment(request(sentence = "これはテストです")) shouldBe null
+        backend.detectSpeechCalls shouldBe 0
         backend.transcribeCalls shouldBe 1
         pipeline.close()
     }
 
     @Test
-    fun `successful alignment returns the overlapping VAD timestamps`() = runBlocking {
+    fun `successful alignment returns Whisper timestamps in the original PCM window`() = runBlocking {
         val pcm = ShortArray(32_000) { it.toShort() }
         val backend = FakeBackend(
-            speech = listOf(SpeechSegment(400, 1_100)),
+            speech = emptyList(),
             transcript = listOf(TranscriptSegment("これは、テストです。", 500, 1_000)),
         )
         val pipeline = SentenceAudioInferencePipeline(backend)
@@ -52,7 +69,8 @@ class SentenceAudioInferenceTest {
             ),
         )
 
-        result shouldBe SentenceAudioInferenceResult(startMillis = 400, endMillis = 1_100)
+        result shouldBe SentenceAudioInferenceResult(startMillis = 500, endMillis = 1_000)
+        backend.detectSpeechCalls shouldBe 0
         pipeline.close()
     }
 
@@ -75,6 +93,7 @@ class SentenceAudioInferenceTest {
         )
 
         result shouldBe SentenceAudioInferenceResult(startMillis = 1_200, endMillis = 1_700)
+        backend.detectSpeechCalls shouldBe 1
         backend.transcribeCalls shouldBe 0
         pipeline.close()
     }
@@ -86,6 +105,7 @@ class SentenceAudioInferenceTest {
 
         pipeline.findSegment(request(ocrOffsetMillis = 500)) shouldBe null
 
+        backend.detectSpeechCalls shouldBe 1
         backend.transcribeCalls shouldBe 0
         pipeline.close()
     }
@@ -121,6 +141,7 @@ class SentenceAudioInferenceTest {
         ).awaitAll()
 
         backend.maximumConcurrentTranscriptions.get() shouldBe 1
+        backend.detectSpeechCalls shouldBe 0
         pipeline.close()
     }
 
@@ -144,12 +165,16 @@ class SentenceAudioInferenceTest {
         private val transcript: List<TranscriptSegment> = emptyList(),
         private val inferenceDelayMillis: Long = 0,
     ) : SentenceAudioInferenceBackend {
+        var detectSpeechCalls = 0
         var transcribeCalls = 0
         var closed = false
         val maximumConcurrentTranscriptions = AtomicInteger()
         private val activeTranscriptions = AtomicInteger()
 
-        override fun detectSpeech(pcm16: ShortArray): List<SpeechSegment> = speech
+        override fun detectSpeech(pcm16: ShortArray): List<SpeechSegment> {
+            detectSpeechCalls++
+            return speech
+        }
 
         override fun transcribe(pcm16: ShortArray, timeoutMillis: Long): List<TranscriptSegment> {
             transcribeCalls++

@@ -24,6 +24,7 @@ static_assert(vad_centiseconds_to_milliseconds(704.0F) == 7040);
 struct SentenceAudioEngine {
     whisper_context * whisper = nullptr;
     whisper_vad_context * vad = nullptr;
+    std::string vad_model_path;
     int thread_count = 1;
     float vad_threshold = 0.60F;
     int vad_min_speech_duration_ms = 300;
@@ -128,6 +129,7 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeCreate(
     }
 
     auto engine = std::make_unique<SentenceAudioEngine>();
+    engine->vad_model_path = vad_path;
     engine->thread_count = std::max(1, static_cast<int>(thread_count));
     engine->vad_threshold = std::clamp(static_cast<float>(vad_threshold), 0.0F, 1.0F);
     engine->vad_min_speech_duration_ms = std::max(0, static_cast<int>(vad_min_speech_duration_ms));
@@ -147,13 +149,15 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeCreate(
         }
     }
 
-    whisper_vad_context_params vad_context_params = whisper_vad_default_context_params();
-    vad_context_params.n_threads = engine->thread_count;
-    vad_context_params.use_gpu = false;
-    engine->vad = whisper_vad_init_from_file_with_params(vad_path.c_str(), vad_context_params);
-    if (engine->vad == nullptr) {
-        log_error("Unable to load Silero VAD model");
-        return 0;
+    if (engine->whisper == nullptr) {
+        whisper_vad_context_params vad_context_params = whisper_vad_default_context_params();
+        vad_context_params.n_threads = engine->thread_count;
+        vad_context_params.use_gpu = false;
+        engine->vad = whisper_vad_init_from_file_with_params(vad_path.c_str(), vad_context_params);
+        if (engine->vad == nullptr) {
+            log_error("Unable to load Silero VAD model");
+            return 0;
+        }
     }
 
     return reinterpret_cast<jlong>(engine.release());
@@ -174,7 +178,7 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeDetectSpeech(
         jlong handle,
         jshortArray pcm16) {
     SentenceAudioEngine * engine = from_handle(handle);
-    if (engine == nullptr) {
+    if (engine == nullptr || engine->vad == nullptr) {
         return empty_int_array(env);
     }
 
@@ -264,6 +268,14 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeTranscribe(
     params.detect_language = false;
     params.abort_callback = abort_after_deadline;
     params.abort_callback_user_data = &deadline;
+    params.vad = true;
+    params.vad_model_path = engine->vad_model_path.c_str();
+    params.vad_params.threshold = engine->vad_threshold;
+    params.vad_params.min_speech_duration_ms = engine->vad_min_speech_duration_ms;
+    params.vad_params.min_silence_duration_ms = engine->vad_min_silence_duration_ms;
+    params.vad_params.max_speech_duration_s = engine->vad_max_speech_duration_seconds;
+    params.vad_params.speech_pad_ms = engine->vad_speech_padding_ms;
+    params.vad_params.samples_overlap = engine->vad_samples_overlap_seconds;
 
     if (whisper_full(
             engine->whisper,
@@ -292,6 +304,7 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeTranscribe(
     for (int index = 0; index < segment_count; ++index) {
         const char * text = whisper_full_get_segment_text(engine->whisper, index);
         jstring java_text = env->NewStringUTF(text == nullptr ? "" : text);
+        // Built-in VAD maps filtered-audio timestamps back to the original input timeline.
         const jlong start_millis = whisper_full_get_segment_t0(engine->whisper, index) * 10L;
         const jlong end_millis = whisper_full_get_segment_t1(engine->whisper, index) * 10L;
         jobject segment = env->NewObject(

@@ -25,6 +25,13 @@ set(GGML_NATIVE OFF CACHE BOOL "Use host-specific instructions" FORCE)
 
 add_subdirectory(whisper.cpp EXCLUDE_FROM_ALL)
 
+# Whisper inference is too slow to be usable when the Android debug build leaves
+# the native targets unoptimized. Keep debug symbols, but optimize the inference
+# libraries in every build type.
+foreach(target whisper ggml ggml-base ggml-cpu)
+    target_compile_options(${target} PRIVATE -O3)
+endforeach()
+
 add_library(sentence_audio_jni SHARED
     sentence_audio_jni.cpp
 )

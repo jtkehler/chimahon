@@ -87,23 +87,24 @@ class SentenceAudioInferencePipeline(
 
         return try {
             val startedAtNanos = System.nanoTime()
-            logDebug(
-                "VAD starting: durationMs=${request.pcm16.size * 1_000L / SAMPLE_RATE_HZ}, " +
-                    "ocrOffsetMs=${request.ocrOffsetMillis}, vadOnly=$vadOnly",
-            )
-            val speechSegments = backend.detectSpeech(request.pcm16)
-                .filter { it.endMillis > it.startMillis }
-            val vadElapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
-            logDebug(
-                "VAD finished: durationMs=$vadElapsedMillis, segmentCount=${speechSegments.size}, " +
-                    "segments=${speechSegments.summary()}",
-            )
-            if (speechSegments.isEmpty()) {
-                logDebug("Inference produced no audio: VAD found no speech segments")
-                return null
-            }
+            val inputDurationMillis = request.pcm16.size * 1_000L / SAMPLE_RATE_HZ
 
             if (vadOnly) {
+                logDebug(
+                    "VAD starting: durationMs=$inputDurationMillis, " +
+                        "ocrOffsetMs=${request.ocrOffsetMillis}, vadOnly=true",
+                )
+                val speechSegments = backend.detectSpeech(request.pcm16)
+                    .filter { it.endMillis > it.startMillis }
+                val vadElapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
+                logDebug(
+                    "VAD finished: durationMs=$vadElapsedMillis, segmentCount=${speechSegments.size}, " +
+                        "segments=${speechSegments.summary()}",
+                )
+                if (speechSegments.isEmpty()) {
+                    logDebug("Inference produced no audio: VAD found no speech segments")
+                    return null
+                }
                 val segment = speechSegments
                     .filter { it.startMillis <= request.ocrOffsetMillis }
                     .maxWithOrNull(compareBy<SpeechSegment> { it.startMillis }.thenBy { it.endMillis })
@@ -120,9 +121,22 @@ class SentenceAudioInferencePipeline(
                 return segment.toInferenceResult()
             }
 
+            logDebug(
+                "Whisper VAD starting: inputDurationMs=$inputDurationMillis, vadEnabled=true, " +
+                    "ocrOffsetMs=${request.ocrOffsetMillis}",
+            )
             val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
             val remainingMillis = (timeoutMillis - elapsedMillis).coerceAtLeast(1L)
             val transcript = backend.transcribe(request.pcm16, remainingMillis)
+            val transcriptElapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
+            logDebug(
+                "Whisper VAD finished: elapsedMs=$transcriptElapsedMillis, " +
+                    "transcriptSegmentCount=${transcript.size}",
+            )
+            if (transcript.isEmpty()) {
+                logDebug("Inference produced no audio: Whisper VAD returned no transcript segments")
+                return null
+            }
             val match = SentenceAudioAligner.findBestMatch(
                 sentence = request.sentence,
                 transcript = transcript,
@@ -134,19 +148,10 @@ class SentenceAudioInferencePipeline(
                 return null
             }
 
-            val matchingSpeechSegments = speechSegments.filter { it.overlaps(match.startMillis, match.endMillis) }
-            if (matchingSpeechSegments.isEmpty()) {
-                logDebug("Inference produced no audio: transcript match did not overlap VAD speech")
-                return null
-            }
-
-            SentenceAudioInferenceResult(
-                startMillis = matchingSpeechSegments.minOf { it.startMillis },
-                endMillis = matchingSpeechSegments.maxOf { it.endMillis },
-            ).also { result ->
+            SentenceAudioInferenceResult(match.startMillis, match.endMillis).also { result ->
                 logDebug(
                     "Aligned sentence segment selected: match=${match.startMillis}-${match.endMillis}ms, " +
-                        "vad=${result.startMillis}-${result.endMillis}ms, score=${match.score}",
+                        "result=${result.startMillis}-${result.endMillis}ms, score=${match.score}",
                 )
             }
         } catch (error: CancellationException) {
@@ -160,9 +165,6 @@ class SentenceAudioInferencePipeline(
     override fun close() {
         backend.close()
     }
-
-    private fun SpeechSegment.overlaps(startMillis: Long, endMillis: Long): Boolean =
-        this.startMillis < endMillis && this.endMillis > startMillis
 
     private fun SpeechSegment.toInferenceResult() = SentenceAudioInferenceResult(startMillis, endMillis)
 
