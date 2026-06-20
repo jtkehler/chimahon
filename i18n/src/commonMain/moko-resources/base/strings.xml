@@ -320,7 +320,7 @@
     <string name="pref_overlay_audio_models_checking">Checking installed models…</string>
     <string name="pref_overlay_audio_models_missing">Whisper and Silero models are not installed</string>
     <string name="pref_overlay_audio_models_downloading">Downloading and validating Whisper and Silero models…</string>
-    <string name="pref_overlay_audio_models_installed">Whisper base-q5_1 and Silero VAD v6.2.0 are installed</string>
+    <string name="pref_overlay_audio_models_installed">Whisper tiny-q5_1 and Silero VAD v6.2.0 are installed</string>
     <string name="pref_overlay_audio_models_error">Audio model error: %1$s</string>
     <string name="pref_overlay_audio_models_download">Download audio models</string>
     <string name="pref_overlay_audio_models_retry">Retry audio model download</string>

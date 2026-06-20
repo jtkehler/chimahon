@@ -186,16 +186,16 @@ class OverlayAudioModelManager internal constructor(
 
     companion object {
         const val MODEL_DIRECTORY = "overlay_audio_models"
-        const val WHISPER_MODEL_FILE_NAME = "ggml-base-q5_1.bin"
+        const val WHISPER_MODEL_FILE_NAME = "ggml-tiny-q5_1.bin"
         const val VAD_MODEL_FILE_NAME = "ggml-silero-v6.2.0.bin"
 
         internal val DEFAULT_MODELS = listOf(
             OverlayAudioModel(
-                displayName = "Whisper base-q5_1",
+                displayName = "Whisper tiny-q5_1",
                 fileName = WHISPER_MODEL_FILE_NAME,
-                url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/87cd18b47b941d2f65d09981dad23bb7d0481c77/ggml-base-q5_1.bin",
-                expectedSize = 59_707_625L,
-                sha256 = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+                url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/87cd18b47b941d2f65d09981dad23bb7d0481c77/ggml-tiny-q5_1.bin",
+                expectedSize = 32_152_673L,
+                sha256 = "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
             ),
             OverlayAudioModel(
                 displayName = "Silero VAD v6.2.0",

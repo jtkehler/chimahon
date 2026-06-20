@@ -16,7 +16,7 @@ The active Anki field map must contain `{sentence-audio}` before Chimahon reques
 - Add no sentence audio when Whisper cannot align the OCR sentence to the transcript.
 - Missing models, denied permission, silence, capture failure, VAD failure, Whisper failure, timeout, or alignment failure must not prevent Anki card creation.
 - Models are downloaded explicitly from Dictionary settings. Do not bundle large model files in the APK.
-- Initial model targets are whisper.cpp `base-q5_1` and its supported `silero-v6.2.0` VAD model. Benchmarking may change the Whisper model before the native stage ships.
+- Initial model targets are whisper.cpp `tiny-q5_1` and its supported `silero-v6.2.0` VAD model. Benchmarking may change the Whisper model before the native stage ships.
 
 ## PR 1: Contracts, settings, and Anki media plumbing
 
