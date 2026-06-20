@@ -40,3 +40,4 @@ AGENTS.md
 *.patch
 /docs
 .codex-logs
+.codex-logs/
