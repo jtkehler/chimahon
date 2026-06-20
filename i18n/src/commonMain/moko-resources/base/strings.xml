@@ -299,6 +299,32 @@
     <string name="screen_lookup_finding_text">Finding text…</string>
     <string name="screen_lookup_no_text">No text found</string>
     <string name="screen_lookup_tap_text">Tap highlighted text to look it up</string>
+    <string name="pref_overlay_audio_title">Overlay sentence audio</string>
+    <string name="pref_overlay_audio_enabled">Mine Overlay Audio</string>
+    <string name="pref_overlay_audio_enabled_summary">Capture game or media playback for `{sentence-audio}` while screen lookup is running</string>
+    <string name="pref_overlay_audio_android_10_required">Playback capture requires Android 10 or newer</string>
+    <string name="pref_overlay_audio_vad_only">VAD only</string>
+    <string name="pref_overlay_audio_vad_only_summary">Skip Whisper and use the most recent Silero speech segment at or before the OCR timestamp</string>
+    <string name="pref_overlay_audio_before">Audio before OCR capture</string>
+    <string name="pref_overlay_audio_after">Audio after OCR capture</string>
+    <string name="pref_overlay_audio_seconds">%1$d seconds</string>
+    <string name="pref_overlay_audio_milliseconds">%1$d ms</string>
+    <string name="pref_overlay_audio_percent">%1$d%%</string>
+    <string name="pref_overlay_audio_vad_threshold">Silero speech threshold</string>
+    <string name="pref_overlay_audio_vad_min_speech">Silero minimum speech</string>
+    <string name="pref_overlay_audio_vad_min_silence">Silero minimum silence</string>
+    <string name="pref_overlay_audio_vad_max_speech">Silero maximum speech</string>
+    <string name="pref_overlay_audio_vad_speech_padding">Silero speech padding</string>
+    <string name="pref_overlay_audio_vad_overlap">Silero analysis overlap</string>
+    <string name="pref_overlay_audio_model_status">Audio model status</string>
+    <string name="pref_overlay_audio_models_checking">Checking installed models…</string>
+    <string name="pref_overlay_audio_models_missing">Whisper and Silero models are not installed</string>
+    <string name="pref_overlay_audio_models_downloading">Downloading and validating Whisper and Silero models…</string>
+    <string name="pref_overlay_audio_models_installed">Whisper base-q5_1 and Silero VAD v6.2.0 are installed</string>
+    <string name="pref_overlay_audio_models_error">Audio model error: %1$s</string>
+    <string name="pref_overlay_audio_models_download">Download audio models</string>
+    <string name="pref_overlay_audio_models_retry">Retry audio model download</string>
+    <string name="pref_overlay_audio_models_delete">Delete audio models</string>
 
       <!-- General section -->
     <string name="pref_category_theme">Theme</string>

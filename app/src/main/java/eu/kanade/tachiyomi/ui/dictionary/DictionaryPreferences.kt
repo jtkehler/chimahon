@@ -29,6 +29,26 @@ class DictionaryPreferences(
     /** "cloud" (default) or "local" */
     fun ocrEngine() = preferenceStore.getString("pref_ocr_engine", "cloud")
 
+    fun mineOverlayAudio() = preferenceStore.getBoolean("pref_mine_overlay_audio", false)
+
+    fun overlayAudioVadOnly() = preferenceStore.getBoolean("pref_overlay_audio_vad_only", false)
+
+    fun overlayAudioBeforeSeconds() = preferenceStore.getInt("pref_overlay_audio_before_seconds", 15)
+
+    fun overlayAudioAfterSeconds() = preferenceStore.getInt("pref_overlay_audio_after_seconds", 5)
+
+    fun overlayAudioVadThresholdPercent() = preferenceStore.getInt("pref_overlay_audio_vad_threshold_percent", 60)
+
+    fun overlayAudioVadMinSpeechMillis() = preferenceStore.getInt("pref_overlay_audio_vad_min_speech_millis", 300)
+
+    fun overlayAudioVadMinSilenceMillis() = preferenceStore.getInt("pref_overlay_audio_vad_min_silence_millis", 700)
+
+    fun overlayAudioVadMaxSpeechSeconds() = preferenceStore.getInt("pref_overlay_audio_vad_max_speech_seconds", 20)
+
+    fun overlayAudioVadSpeechPaddingMillis() = preferenceStore.getInt("pref_overlay_audio_vad_speech_padding_millis", 100)
+
+    fun overlayAudioVadOverlapMillis() = preferenceStore.getInt("pref_overlay_audio_vad_overlap_millis", 100)
+
     fun showFrequencyHarmonic() = preferenceStore.getBoolean("pref_dict_show_frequency_harmonic", false)
     fun showFrequencyAverage() = preferenceStore.getBoolean("pref_dict_show_frequency_average", false)
 
