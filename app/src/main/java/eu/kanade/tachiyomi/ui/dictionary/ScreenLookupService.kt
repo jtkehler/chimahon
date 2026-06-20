@@ -40,6 +40,7 @@ import androidx.core.content.getSystemService
 import chimahon.audio.BufferedSentenceAudioProvider
 import chimahon.audio.NativeSentenceAudioBackend
 import chimahon.audio.SentenceAudioInferencePipeline
+import chimahon.audio.SileroVadParameters
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
 import eu.kanade.tachiyomi.data.notification.Notifications
@@ -229,6 +230,14 @@ class ScreenLookupService : Service() {
                         NativeSentenceAudioBackend(
                             whisperModel = modelFiles.whisper.takeUnless { vadOnly },
                             vadModel = modelFiles.vad,
+                            vadParameters = SileroVadParameters(
+                                threshold = preferences.overlayAudioVadThresholdPercent().get() / 100f,
+                                minSpeechDurationMillis = preferences.overlayAudioVadMinSpeechMillis().get(),
+                                minSilenceDurationMillis = preferences.overlayAudioVadMinSilenceMillis().get(),
+                                maxSpeechDurationSeconds = preferences.overlayAudioVadMaxSpeechSeconds().get().toFloat(),
+                                speechPaddingMillis = preferences.overlayAudioVadSpeechPaddingMillis().get(),
+                                samplesOverlapSeconds = preferences.overlayAudioVadOverlapMillis().get() / 1_000f,
+                            ),
                         ),
                         vadOnly = vadOnly,
                     )

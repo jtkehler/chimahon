@@ -2500,6 +2500,18 @@ object SettingsDictionaryScreen : SearchableSettings {
         val beforeSeconds by beforePref.collectAsState()
         val afterPref = prefs.overlayAudioAfterSeconds()
         val afterSeconds by afterPref.collectAsState()
+        val vadThresholdPref = prefs.overlayAudioVadThresholdPercent()
+        val vadThreshold by vadThresholdPref.collectAsState()
+        val vadMinSpeechPref = prefs.overlayAudioVadMinSpeechMillis()
+        val vadMinSpeech by vadMinSpeechPref.collectAsState()
+        val vadMinSilencePref = prefs.overlayAudioVadMinSilenceMillis()
+        val vadMinSilence by vadMinSilencePref.collectAsState()
+        val vadMaxSpeechPref = prefs.overlayAudioVadMaxSpeechSeconds()
+        val vadMaxSpeech by vadMaxSpeechPref.collectAsState()
+        val vadSpeechPaddingPref = prefs.overlayAudioVadSpeechPaddingMillis()
+        val vadSpeechPadding by vadSpeechPaddingPref.collectAsState()
+        val vadOverlapPref = prefs.overlayAudioVadOverlapMillis()
+        val vadOverlap by vadOverlapPref.collectAsState()
         val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
         return Preference.PreferenceGroup(
@@ -2538,6 +2550,60 @@ object SettingsDictionaryScreen : SearchableSettings {
                     steps = 29,
                     enabled = supported && enabled,
                     onValueChanged = afterPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadThreshold,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_threshold),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_percent, vadThreshold),
+                    valueRange = 1..99,
+                    steps = 97,
+                    enabled = supported && enabled,
+                    onValueChanged = vadThresholdPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMinSpeech,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_min_speech),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadMinSpeech),
+                    valueRange = 50..2_000 step 50,
+                    steps = 38,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMinSpeechPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMinSilence,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_min_silence),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadMinSilence),
+                    valueRange = 50..3_000 step 50,
+                    steps = 58,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMinSilencePref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMaxSpeech,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_max_speech),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, vadMaxSpeech),
+                    valueRange = 1..60,
+                    steps = 58,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMaxSpeechPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadSpeechPadding,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_speech_padding),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadSpeechPadding),
+                    valueRange = 0..1_000 step 25,
+                    steps = 39,
+                    enabled = supported && enabled,
+                    onValueChanged = vadSpeechPaddingPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadOverlap,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_overlap),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadOverlap),
+                    valueRange = 0..1_000 step 25,
+                    steps = 39,
+                    enabled = supported && enabled,
+                    onValueChanged = vadOverlapPref::set,
                 ),
                 Preference.PreferenceItem.TextPreference(
                     title = stringResource(MR.strings.pref_overlay_audio_model_status),

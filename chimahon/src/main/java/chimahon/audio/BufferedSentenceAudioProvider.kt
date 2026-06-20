@@ -9,6 +9,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Builds sentence audio from a bounded playback-capture buffer.
@@ -21,6 +23,7 @@ class BufferedSentenceAudioProvider(
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val windowWaitGraceMillis: Long = DEFAULT_WINDOW_WAIT_GRACE_MILLIS,
     private val logWarning: (String, Throwable?) -> Unit = DEFAULT_LOG_WARNING,
+    private val logDebug: (String) -> Unit = DEFAULT_LOG_DEBUG,
     private val pipelineFactory: () -> SentenceAudioInferencePipeline?,
 ) : SentenceAudioProvider, Closeable {
     private val stateLock = Any()
@@ -62,6 +65,14 @@ class BufferedSentenceAudioProvider(
             return null
         }
 
+        val stats = window.samples.signalStats()
+        logDebug(
+            "Audio window: durationMs=${window.durationMillis}, samples=${window.samples.size}, " +
+                "beforeOcrMs=${(request.captureTimestampNanos - window.startTimestampNanos) / NANOS_PER_MILLISECOND}, " +
+                "afterOcrMs=${(window.endTimestampNanos - request.captureTimestampNanos) / NANOS_PER_MILLISECOND}, " +
+                "peak=${stats.peak}, rms=${stats.rms}, aboveNoise=${stats.aboveNoiseSamples}/${window.samples.size}",
+        )
+
         val currentPipeline = acquirePipeline() ?: return null
         return try {
             currentPipeline.create(
@@ -100,9 +111,16 @@ class BufferedSentenceAudioProvider(
                 }
             }
 
+            val startedAtNanos = System.nanoTime()
+            logDebug("Initializing sentence-audio inference pipeline")
             val created = runCatching(pipelineFactory)
                 .onFailure { logWarning("Sentence audio models could not be loaded", it) }
                 .getOrNull()
+            logDebug(
+                "Sentence-audio pipeline initialization finished: " +
+                    "durationMs=${(System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND}, " +
+                    "success=${created != null}",
+            )
             if (created == null) {
                 logWarning("Sentence audio unavailable: models are not installed", null)
                 return@withLock null
@@ -153,11 +171,42 @@ class BufferedSentenceAudioProvider(
         Math.multiplyExact(toLong(), NANOS_PER_SECOND)
     }.getOrNull()
 
+    private val PcmAudioWindow.durationMillis: Long
+        get() = (endTimestampNanos - startTimestampNanos) / NANOS_PER_MILLISECOND
+
+    private fun ShortArray.signalStats(): PcmSignalStats {
+        if (isEmpty()) return PcmSignalStats(peak = 0, rms = 0, aboveNoiseSamples = 0)
+        var peak = 0
+        var sumSquares = 0L
+        var aboveNoiseSamples = 0
+        for (sample in this) {
+            val amplitude = if (sample == Short.MIN_VALUE) 32_768 else kotlin.math.abs(sample.toInt())
+            peak = maxOf(peak, amplitude)
+            sumSquares += amplitude.toLong() * amplitude
+            if (amplitude > PCM_NOISE_FLOOR) aboveNoiseSamples++
+        }
+        return PcmSignalStats(
+            peak = peak,
+            rms = sqrt(sumSquares.toDouble() / size).roundToInt(),
+            aboveNoiseSamples = aboveNoiseSamples,
+        )
+    }
+
+    private data class PcmSignalStats(
+        val peak: Int,
+        val rms: Int,
+        val aboveNoiseSamples: Int,
+    )
+
     private companion object {
         const val TAG = "BufferedSentenceAudio"
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
+        const val PCM_NOISE_FLOOR = 128
         const val DEFAULT_WINDOW_WAIT_GRACE_MILLIS = 1_000L
+        val DEFAULT_LOG_DEBUG: (String) -> Unit = { message ->
+            runCatching { Log.d(TAG, message) }
+        }
         val DEFAULT_LOG_WARNING: (String, Throwable?) -> Unit = { message, error ->
             if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
         }

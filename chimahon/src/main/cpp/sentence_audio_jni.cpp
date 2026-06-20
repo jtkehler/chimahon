@@ -14,18 +14,17 @@
 
 namespace {
 constexpr char kLogTag[] = "SentenceAudioNative";
-constexpr float kVadThreshold = 0.60F;
-constexpr int kVadMinSpeechDurationMs = 300;
-// Keep brief natural pauses inside one utterance while splitting longer gaps between dialogue lines.
-constexpr int kVadMinSilenceDurationMs = 700;
-constexpr float kVadMaxSpeechDurationSeconds = 20.0F;
-constexpr int kVadSpeechPaddingMs = 100;
-constexpr float kVadSamplesOverlapSeconds = 0.10F;
 
 struct SentenceAudioEngine {
     whisper_context * whisper = nullptr;
     whisper_vad_context * vad = nullptr;
     int thread_count = 1;
+    float vad_threshold = 0.60F;
+    int vad_min_speech_duration_ms = 300;
+    int vad_min_silence_duration_ms = 700;
+    float vad_max_speech_duration_seconds = 20.0F;
+    int vad_speech_padding_ms = 100;
+    float vad_samples_overlap_seconds = 0.10F;
     std::mutex mutex;
 
     ~SentenceAudioEngine() {
@@ -109,7 +108,13 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeCreate(
         jobject,
         jstring whisper_model_path,
         jstring vad_model_path,
-        jint thread_count) {
+        jint thread_count,
+        jfloat vad_threshold,
+        jint vad_min_speech_duration_ms,
+        jint vad_min_silence_duration_ms,
+        jfloat vad_max_speech_duration_seconds,
+        jint vad_speech_padding_ms,
+        jfloat vad_samples_overlap_seconds) {
     const std::string whisper_path = to_string(env, whisper_model_path);
     const std::string vad_path = to_string(env, vad_model_path);
     if (vad_path.empty()) {
@@ -118,6 +123,12 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeCreate(
 
     auto engine = std::make_unique<SentenceAudioEngine>();
     engine->thread_count = std::max(1, static_cast<int>(thread_count));
+    engine->vad_threshold = std::clamp(static_cast<float>(vad_threshold), 0.0F, 1.0F);
+    engine->vad_min_speech_duration_ms = std::max(0, static_cast<int>(vad_min_speech_duration_ms));
+    engine->vad_min_silence_duration_ms = std::max(0, static_cast<int>(vad_min_silence_duration_ms));
+    engine->vad_max_speech_duration_seconds = std::max(0.001F, static_cast<float>(vad_max_speech_duration_seconds));
+    engine->vad_speech_padding_ms = std::max(0, static_cast<int>(vad_speech_padding_ms));
+    engine->vad_samples_overlap_seconds = std::max(0.0F, static_cast<float>(vad_samples_overlap_seconds));
 
     if (!whisper_path.empty()) {
         whisper_context_params whisper_params = whisper_context_default_params();
@@ -176,12 +187,12 @@ Java_chimahon_audio_NativeSentenceAudioBackend_nativeDetectSpeech(
     }
 
     whisper_vad_params vad_params = whisper_vad_default_params();
-    vad_params.threshold = kVadThreshold;
-    vad_params.min_speech_duration_ms = kVadMinSpeechDurationMs;
-    vad_params.min_silence_duration_ms = kVadMinSilenceDurationMs;
-    vad_params.max_speech_duration_s = kVadMaxSpeechDurationSeconds;
-    vad_params.speech_pad_ms = kVadSpeechPaddingMs;
-    vad_params.samples_overlap = kVadSamplesOverlapSeconds;
+    vad_params.threshold = engine->vad_threshold;
+    vad_params.min_speech_duration_ms = engine->vad_min_speech_duration_ms;
+    vad_params.min_silence_duration_ms = engine->vad_min_silence_duration_ms;
+    vad_params.max_speech_duration_s = engine->vad_max_speech_duration_seconds;
+    vad_params.speech_pad_ms = engine->vad_speech_padding_ms;
+    vad_params.samples_overlap = engine->vad_samples_overlap_seconds;
 
     whisper_vad_segments * segments = whisper_vad_segments_from_probs(engine->vad, vad_params);
     if (segments == nullptr) {
