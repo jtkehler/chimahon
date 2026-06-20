@@ -42,6 +42,7 @@ internal data class AlignedSentenceSpan(
     val startMillis: Long,
     val endMillis: Long,
     val score: Double,
+    val normalizedText: String,
 )
 
 interface SentenceAudioInferenceBackend : Closeable {
@@ -133,18 +134,36 @@ class SentenceAudioInferencePipeline(
                 "Whisper VAD finished: elapsedMs=$transcriptElapsedMillis, " +
                     "transcriptSegmentCount=${transcript.size}",
             )
+            logDebug("Whisper transcript: segments=${transcript.transcriptSummary()}")
             if (transcript.isEmpty()) {
                 logDebug("Inference produced no audio: Whisper VAD returned no transcript segments")
                 return null
             }
-            val match = SentenceAudioAligner.findBestMatch(
+            val normalizedTarget = SentenceAudioAligner.normalize(request.sentence)
+            logDebug(
+                "Alignment target: raw=\"${request.sentence.logExcerpt()}\", " +
+                    "normalized=\"${normalizedTarget.logExcerpt()}\", " +
+                    "minimumScore=$minimumMatchScore",
+            )
+            val match = SentenceAudioAligner.findBestCandidate(
                 sentence = request.sentence,
                 transcript = transcript,
                 ocrOffsetMillis = request.ocrOffsetMillis,
-                minimumScore = minimumMatchScore,
             )
             if (match == null) {
-                logDebug("Inference produced no audio: transcript did not match the OCR sentence")
+                logDebug("Inference produced no audio: transcript contained no valid alignment candidates")
+                return null
+            }
+            logDebug(
+                "Alignment best candidate: text=\"${match.normalizedText.logExcerpt()}\", " +
+                    "segment=${match.startMillis}-${match.endMillis}ms, score=${match.score}, " +
+                    "minimumScore=$minimumMatchScore",
+            )
+            if (match.score < minimumMatchScore) {
+                logDebug(
+                    "Inference produced no audio: best alignment score ${match.score} was below " +
+                        "minimumScore=$minimumMatchScore",
+                )
                 return null
             }
 
@@ -176,11 +195,26 @@ class SentenceAudioInferencePipeline(
         return if (size > MAX_LOGGED_SEGMENTS) "$shown+${size - MAX_LOGGED_SEGMENTS}more" else shown
     }
 
+    private fun List<TranscriptSegment>.transcriptSummary(): String {
+        if (isEmpty()) return "[]"
+        val shown = take(MAX_LOGGED_SEGMENTS).joinToString(prefix = "[", postfix = "]") {
+            "${it.startMillis}-${it.endMillis}ms=\"${it.text.logExcerpt()}\""
+        }
+        return if (size > MAX_LOGGED_SEGMENTS) "$shown+${size - MAX_LOGGED_SEGMENTS}more" else shown
+    }
+
+    private fun String.logExcerpt(): String =
+        replace('\n', ' ')
+            .replace('\r', ' ')
+            .replace('"', '\'')
+            .take(MAX_LOGGED_TEXT_CHARACTERS)
+
     companion object {
         const val SAMPLE_RATE_HZ = 16_000
         const val DEFAULT_TIMEOUT_MILLIS = 30_000L
         const val DEFAULT_MINIMUM_MATCH_SCORE = 0.72
         private const val MAX_LOGGED_SEGMENTS = 8
+        private const val MAX_LOGGED_TEXT_CHARACTERS = 160
         private const val TAG = "SentenceAudioInference"
         private val DEFAULT_LOG_DEBUG: (String) -> Unit = { message ->
             runCatching { Log.d(TAG, message) }
@@ -197,6 +231,14 @@ internal object SentenceAudioAligner {
         transcript: List<TranscriptSegment>,
         ocrOffsetMillis: Long,
         minimumScore: Double,
+    ): AlignedSentenceSpan? =
+        findBestCandidate(sentence, transcript, ocrOffsetMillis)
+            ?.takeIf { it.score >= minimumScore }
+
+    fun findBestCandidate(
+        sentence: String,
+        transcript: List<TranscriptSegment>,
+        ocrOffsetMillis: Long,
     ): AlignedSentenceSpan? {
         val target = normalize(sentence)
         if (target.isEmpty()) return null
@@ -217,14 +259,14 @@ internal object SentenceAudioAligner {
                     startMillis = startSegment.startMillis,
                     endMillis = endSegment.endMillis,
                     score = score,
+                    normalizedText = candidate.toString(),
                 )
                 if (isBetter(span, best, ocrOffsetMillis)) best = span
 
                 if (candidate.length > target.length * MAX_CANDIDATE_LENGTH_MULTIPLIER) break
             }
         }
-
-        return best?.takeIf { it.score >= minimumScore }
+        return best
     }
 
     internal fun normalize(text: String): String = buildString(text.length) {

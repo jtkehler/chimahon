@@ -40,15 +40,20 @@ class SentenceAudioInferenceTest {
 
     @Test
     fun `failed alignment never returns sentence audio`() = runBlocking {
+        val logs = mutableListOf<String>()
         val backend = FakeBackend(
             speech = listOf(SpeechSegment(0, 1_000)),
             transcript = listOf(TranscriptSegment("まったく違う台詞", 0, 1_000)),
         )
-        val pipeline = SentenceAudioInferencePipeline(backend)
+        val pipeline = SentenceAudioInferencePipeline(backend, logDebug = logs::add)
 
         pipeline.findSegment(request(sentence = "これはテストです")) shouldBe null
         backend.detectSpeechCalls shouldBe 0
         backend.transcribeCalls shouldBe 1
+        logs.any { it.contains("0-1000ms=\"まったく違う台詞\"") } shouldBe true
+        logs.any { it.contains("normalized=\"これはテストです\"") } shouldBe true
+        logs.any { it.contains("Alignment best candidate:") && it.contains("minimumScore=0.72") } shouldBe true
+        logs.any { it.contains("best alignment score") } shouldBe true
         pipeline.close()
     }
 
