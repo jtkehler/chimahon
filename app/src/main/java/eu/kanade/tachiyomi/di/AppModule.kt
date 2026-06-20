@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.data.BackupRestoreStatus
 import eu.kanade.tachiyomi.data.LibraryUpdateStatus
 import eu.kanade.tachiyomi.data.SyncStatus
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
 import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.cache.PagePreviewCache
@@ -186,6 +187,12 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { ModelDownloader(app, get<NetworkHelper>().client) }
         addSingletonFactory { LocalOcrBridge(app) }
         addSingletonFactory { OcrManager(app, get(), get()) }
+        addSingletonFactory {
+            OverlayAudioModelManager(
+                modelDirectory = java.io.File(app.filesDir, OverlayAudioModelManager.MODEL_DIRECTORY),
+                httpClient = get<NetworkHelper>().client,
+            )
+        }
 
         addSingletonFactory { TrackerManager() }
         addSingletonFactory { DelayedTrackingStore(app) }

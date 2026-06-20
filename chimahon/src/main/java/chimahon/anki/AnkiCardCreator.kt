@@ -9,6 +9,7 @@ import chimahon.GlossaryEntry
 import chimahon.LookupResult
 import chimahon.MediaInfo
 import chimahon.PitchEntry
+import chimahon.audio.SentenceAudioResult
 import chimahon.audio.WordAudioResult
 import chimahon.audio.WordAudioService
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -256,6 +257,7 @@ object AnkiCardCreator {
         offset: Int = -1,
         media: MediaInfo? = null,
         screenshotBytes: ByteArray? = null,
+        sentenceAudio: SentenceAudioResult? = null,
         glossaryIndex: Int? = null,
         selection: String? = null,
         selectedDict: String? = null,
@@ -319,6 +321,22 @@ object AnkiCardCreator {
                 }
             }
 
+            var sentenceAudioFilename: String? = null
+            val hasSentenceAudioMarker = fieldMap.values.any {
+                it.contains("{${Marker.SENTENCE_AUDIO}}")
+            }
+            if (sentenceAudio != null && hasSentenceAudioMarker && sentenceAudio.bytes.isNotEmpty()) {
+                try {
+                    sentenceAudioFilename = bridge.storeMedia(
+                        filename = generateSentenceAudioFilename(sentenceAudio),
+                        data = sentenceAudio.bytes,
+                    )
+                    android.util.Log.d(TAG, "addToAnki: stored sentence audio media as $sentenceAudioFilename")
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "addToAnki: failed to store sentence audio media", e)
+                }
+            }
+
             var wordAudioFilename: String? = null
             val hasWordAudioMarker = fieldMap.values.any {
                 it.contains("{${Marker.WORD_AUDIO}}") || it.contains("{${Marker.AUDIO}}")
@@ -359,6 +377,7 @@ object AnkiCardCreator {
                 media,
                 screenshotFilename,
                 wordAudioFilename,
+                sentenceAudioFilename,
                 selectedDict,
                 popupSelection,
                 glossaryIndex,
@@ -466,6 +485,29 @@ object AnkiCardCreator {
         }
     }
 
+    fun fieldMapContainsMarker(
+        fieldMapJson: String,
+        marker: String,
+        modelName: String = "",
+    ): Boolean {
+        val effectiveFieldMapJson = if (
+            LapisPreset.isBundledModelName(modelName) &&
+            LapisPreset.isBlankFieldMap(fieldMapJson)
+        ) {
+            LapisPreset.defaultFieldMapJson
+        } else {
+            fieldMapJson
+        }
+        return fieldMapContainsMarker(parseFieldMap(effectiveFieldMapJson), marker)
+    }
+
+    internal fun fieldMapContainsMarker(
+        fieldMap: Map<String, String>,
+        marker: String,
+    ): Boolean = fieldMap.values.any { template ->
+        template.contains("{$marker}")
+    }
+
     private fun normalizeFieldValue(raw: String): String {
         // If it looks like a template already (contains markers or HTML), preserve it.
         if (raw.contains("{") || raw.contains("<") || raw.contains(">")) return raw
@@ -503,13 +545,14 @@ object AnkiCardCreator {
         media: MediaInfo? = null,
         screenshotFilename: String? = null,
         wordAudioFilename: String? = null,
+        sentenceAudioFilename: String? = null,
         selectedDict: String? = null,
         popupSelection: String? = null,
         glossaryIndex: Int? = null,
         styles: List<DictionaryStyle> = emptyList(),
         exportMedia: ExportMediaContext? = null,
     ): Map<String, String> = fieldMap.mapValues { (_, template) ->
-        formatField(template, result, cloze, media, screenshotFilename, wordAudioFilename, selectedDict, popupSelection, glossaryIndex, styles, exportMedia)
+        formatField(template, result, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename, selectedDict, popupSelection, glossaryIndex, styles, exportMedia)
     }
 
     private fun formatField(
@@ -519,6 +562,7 @@ object AnkiCardCreator {
         media: MediaInfo?,
         screenshotFilename: String?,
         wordAudioFilename: String?,
+        sentenceAudioFilename: String?,
         selectedDict: String?,
         popupSelection: String?,
         glossaryIndex: Int?,
@@ -534,6 +578,7 @@ object AnkiCardCreator {
                 media = media,
                 screenshotFilename = screenshotFilename,
                 wordAudioFilename = wordAudioFilename,
+                sentenceAudioFilename = sentenceAudioFilename,
                 selectedDict = selectedDict,
                 popupSelection = popupSelection,
                 glossaryIndex = glossaryIndex,
@@ -666,6 +711,7 @@ object AnkiCardCreator {
         media: MediaInfo? = null,
         screenshotFilename: String? = null,
         wordAudioFilename: String? = null,
+        sentenceAudioFilename: String? = null,
         selectedDict: String? = null,
         popupSelection: String? = null,
         glossaryIndex: Int? = null,
@@ -771,7 +817,7 @@ object AnkiCardCreator {
         Marker.PITCH_ACCENT_CATEGORIES -> buildPitchCategories(result.term.reading, result.term.rules, result.term.pitches)
         Marker.PITCH_ACCENT_COMPOSITE -> buildPitchAccents(result.term.reading, result.term.pitches, format = PitchFormat.COMPOSITE)
         Marker.WORD_AUDIO -> wordAudioFilename?.let { "[sound:$it]" } ?: ""
-        Marker.SENTENCE_AUDIO -> ""
+        Marker.SENTENCE_AUDIO -> sentenceAudioFilename?.let { "[sound:$it]" } ?: ""
         Marker.MORAE -> buildMorae(result.term.reading)
         Marker.PITCH_ACCENT_GRAPHS, Marker.PITCH_ACCENT_GRAPHS_JJ -> buildPitchAccentGraphs(result.term.reading, result.term.pitches)
         Marker.SCREENSHOT -> screenshotFilename?.let { "<img src=\"$it\">" } ?: ""
@@ -2047,6 +2093,20 @@ object AnkiCardCreator {
             "screenshot_${System.currentTimeMillis()}"
         }
         return "chimahon_$hash.webp"
+    }
+
+    private fun generateSentenceAudioFilename(audio: SentenceAudioResult): String {
+        val extension = audio.extension
+            .replace(Regex("[^A-Za-z0-9]"), "")
+            .ifBlank { "wav" }
+            .lowercase()
+        val hash = try {
+            val digest = java.security.MessageDigest.getInstance("SHA-1").digest(audio.bytes)
+            digest.joinToString("") { "%02x".format(it) }.take(12)
+        } catch (_: Exception) {
+            System.currentTimeMillis().toString()
+        }
+        return "chimahon_sentence_$hash.$extension"
     }
 
     // =============================================================================

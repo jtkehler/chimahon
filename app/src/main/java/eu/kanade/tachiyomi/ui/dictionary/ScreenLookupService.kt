@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
+import android.Manifest
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -21,6 +22,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
@@ -35,7 +37,12 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import chimahon.audio.BufferedSentenceAudioProvider
+import chimahon.audio.NativeSentenceAudioBackend
+import chimahon.audio.SentenceAudioInferencePipeline
+import chimahon.audio.SileroVadParameters
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +58,8 @@ import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
@@ -74,6 +83,8 @@ class ScreenLookupService : Service() {
     private var captureJob: Job? = null
     private var overlayController: ScreenLookupOverlayController? = null
     private var cachedCaptureSize: CaptureSize? = null
+    private var playbackAudioCapture: PlaybackAudioCapture? = null
+    private var sentenceAudioProvider: BufferedSentenceAudioProvider? = null
 
     private val windowManager: WindowManager
         get() = getSystemService()!!
@@ -99,6 +110,9 @@ class ScreenLookupService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
+                if (intent.getBooleanExtra(EXTRA_CAPTURE_PLAYBACK_AUDIO, false)) {
+                    startPlaybackAudioCapture()
+                }
                 showFloatingButton()
                 ScreenLookupServiceState.isRunning.value = true
                 ScreenLookupTileService.requestUpdate(this)
@@ -114,9 +128,9 @@ class ScreenLookupService : Service() {
         captureJob?.cancel()
         overlayController?.release()
         overlayController = null
-        scope.cancel()
         removeFloatingButton()
         releaseProjection()
+        scope.cancel()
         ScreenLookupServiceState.isRunning.value = false
         ScreenLookupTileService.requestUpdate(this)
         super.onDestroy()
@@ -174,6 +188,9 @@ class ScreenLookupService : Service() {
 
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
+                releaseSentenceAudioProvider()
+                playbackAudioCapture?.stop()
+                playbackAudioCapture = null
                 scope.launch { stopSelf() }
             }
 
@@ -189,6 +206,46 @@ class ScreenLookupService : Service() {
         projection = nextProjection
         projectionCallback = callback
         return ensureVirtualDisplay()
+    }
+
+    private fun startPlaybackAudioCapture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val preferences = Injekt.get<DictionaryPreferences>()
+        if (!isOverlayAudioCaptureEnabled(preferences)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        val mediaProjection = projection ?: return
+        val capture = PlaybackAudioCapture(mediaProjection, scope)
+        if (capture.start()) {
+            playbackAudioCapture = capture
+            val modelManager = Injekt.get<OverlayAudioModelManager>()
+            val vadOnly = preferences.overlayAudioVadOnly().get()
+            sentenceAudioProvider = BufferedSentenceAudioProvider(capture.ringBuffer) {
+                val modelFiles = modelManager.modelFiles()
+                if (!modelFiles.vad.isFile || (!vadOnly && !modelFiles.whisper.isFile)) {
+                    null
+                } else {
+                    SentenceAudioInferencePipeline(
+                        NativeSentenceAudioBackend(
+                            whisperModel = modelFiles.whisper.takeUnless { vadOnly },
+                            vadModel = modelFiles.vad,
+                            vadParameters = SileroVadParameters(
+                                threshold = preferences.overlayAudioVadThresholdPercent().get() / 100f,
+                                minSpeechDurationMillis = preferences.overlayAudioVadMinSpeechMillis().get(),
+                                minSilenceDurationMillis = preferences.overlayAudioVadMinSilenceMillis().get(),
+                                maxSpeechDurationSeconds = preferences.overlayAudioVadMaxSpeechSeconds().get().toFloat(),
+                                speechPaddingMillis = preferences.overlayAudioVadSpeechPaddingMillis().get(),
+                                samplesOverlapSeconds = preferences.overlayAudioVadOverlapMillis().get() / 1_000f,
+                            ),
+                        ),
+                        vadOnly = vadOnly,
+                    )
+                }
+            }
+        } else {
+            logcat(LogPriority.WARN) { "Playback audio capture unavailable; continuing without sentence audio" }
+        }
     }
 
     private fun ensureVirtualDisplay(): Boolean {
@@ -255,6 +312,7 @@ class ScreenLookupService : Service() {
         captureJob = scope.launch {
             setFloatingButtonVisible(false)
 
+            val captureTimestampNanos = SystemClock.elapsedRealtimeNanos()
             val bitmap = captureWithProjection()
             if (bitmap == null) {
                 setFloatingButtonVisible(true)
@@ -265,7 +323,7 @@ class ScreenLookupService : Service() {
                 return@launch
             }
 
-            showLookupOverlay(bitmap)
+            showLookupOverlay(bitmap, captureTimestampNanos)
         }
     }
 
@@ -359,14 +417,15 @@ class ScreenLookupService : Service() {
         return image?.use { it.toBitmap() }
     }
 
-    private fun showLookupOverlay(bitmap: Bitmap) {
+    private fun showLookupOverlay(bitmap: Bitmap, captureTimestampNanos: Long) {
         val controller = overlayController ?: ScreenLookupOverlayController(
             context = this,
             windowManager = windowManager,
             onDismiss = { setFloatingButtonVisible(true) },
             onRecapture = { captureFromButton() },
+            sentenceAudioProvider = sentenceAudioProvider,
         ).also { overlayController = it }
-        controller.show(bitmap)
+        controller.show(bitmap, captureTimestampNanos)
     }
 
     private fun Image.toBitmap(): Bitmap {
@@ -482,6 +541,9 @@ class ScreenLookupService : Service() {
     }
 
     private fun releaseProjection() {
+        releaseSentenceAudioProvider()
+        playbackAudioCapture?.stop()
+        playbackAudioCapture = null
         // Order matters: release VirtualDisplay first (detaches the surface),
         // then close ImageReader (abandons the BufferQueue). Closing the reader
         // before releasing the display leaves the VirtualDisplay pointing at an
@@ -504,6 +566,11 @@ class ScreenLookupService : Service() {
         projectionCallback = null
         runCatching { projection?.stop() }
         projection = null
+    }
+
+    private fun releaseSentenceAudioProvider() {
+        sentenceAudioProvider?.close()
+        sentenceAudioProvider = null
     }
 
     private fun captureSize(): CaptureSize {
@@ -561,16 +628,23 @@ class ScreenLookupService : Service() {
         private const val ACTION_CAPTURE = "eu.kanade.tachiyomi.dictionary.SCREEN_LOOKUP_CAPTURE"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_RESULT_DATA = "result_data"
+        private const val EXTRA_CAPTURE_PLAYBACK_AUDIO = "capture_playback_audio"
         private const val NOTIFICATION_ID = 320_420
         private const val BUTTON_SIZE_DP = 56
         private const val BUTTON_ALPHA = 0.92f
         private const val IMAGE_TIMEOUT_MS = 1_500L
 
-        fun start(context: Context, resultCode: Int, resultData: Intent) {
+        fun start(
+            context: Context,
+            resultCode: Int,
+            resultData: Intent,
+            capturePlaybackAudio: Boolean = false,
+        ) {
             val intent = Intent(context, ScreenLookupService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_RESULT_DATA, resultData)
+                .putExtra(EXTRA_CAPTURE_PLAYBACK_AUDIO, capturePlaybackAudio)
             ContextCompat.startForegroundService(context, intent)
         }
 

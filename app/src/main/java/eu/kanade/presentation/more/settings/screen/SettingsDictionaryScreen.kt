@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -88,6 +89,8 @@ import chimahon.anki.AnkiProfile
 import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelManager
+import eu.kanade.tachiyomi.data.audio.OverlayAudioModelStatus
 import eu.kanade.tachiyomi.data.dictionary.DictionaryUpdateJob
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
@@ -187,7 +190,7 @@ private val markerSections = listOf(
         ),
     ),
     MarkerSection("Frequency", listOf(Marker.FREQUENCIES, Marker.FREQUENCY_LOWEST, Marker.FREQUENCY_HARMONIC_RANK, Marker.FREQUENCY_AVERAGE_RANK)),
-    MarkerSection("Media", listOf(Marker.WORD_AUDIO, Marker.AUDIO, Marker.SCREENSHOT)),
+    MarkerSection("Media", listOf(Marker.WORD_AUDIO, Marker.AUDIO, Marker.SENTENCE_AUDIO, Marker.SCREENSHOT)),
     MarkerSection(
         "Context",
         listOf(
@@ -202,7 +205,6 @@ private val markerSections = listOf(
             Marker.CHAPTER,
             Marker.MEDIA,
             Marker.DOCUMENT_TITLE,
-            Marker.SENTENCE_AUDIO,
         ),
     ),
 )
@@ -216,6 +218,7 @@ private val markerDisplayLabels: Map<String, String> = Marker.ALL_WITH_TODO.asso
         Marker.FURIGANA -> "${prefix}Furigana"
         Marker.FURIGANA_PLAIN -> "${prefix}Furigana Plain"
         Marker.AUDIO -> "${prefix}Audio"
+        Marker.SENTENCE_AUDIO -> "${prefix}Sentence Audio"
         Marker.GLOSSARY -> "${prefix}Glossary"
         Marker.GLOSSARY_BRIEF -> "${prefix}Glossary Brief"
         Marker.GLOSSARY_PLAIN -> "${prefix}Glossary Plain"
@@ -374,6 +377,7 @@ object SettingsDictionaryScreen : SearchableSettings {
             getAnkiProfileGroup(),
             getDictionaryListGroup(importLauncher),
             getWordAudioGroup(pickDb),
+            getOverlaySentenceAudioGroup(),
             getAnkiGroup(),
         )
     }
@@ -2484,6 +2488,152 @@ object SettingsDictionaryScreen : SearchableSettings {
         } else {
             base + markerText
         }.ifBlank { "{}" }
+    }
+
+    @Composable
+    private fun getOverlaySentenceAudioGroup(): Preference.PreferenceGroup {
+        val prefs = remember { Injekt.get<DictionaryPreferences>() }
+        val modelManager = remember { Injekt.get<OverlayAudioModelManager>() }
+        val modelStatus by modelManager.status.collectAsState()
+        val enabled by prefs.mineOverlayAudio().collectAsState()
+        val beforePref = prefs.overlayAudioBeforeSeconds()
+        val beforeSeconds by beforePref.collectAsState()
+        val afterPref = prefs.overlayAudioAfterSeconds()
+        val afterSeconds by afterPref.collectAsState()
+        val vadThresholdPref = prefs.overlayAudioVadThresholdPercent()
+        val vadThreshold by vadThresholdPref.collectAsState()
+        val vadMinSpeechPref = prefs.overlayAudioVadMinSpeechMillis()
+        val vadMinSpeech by vadMinSpeechPref.collectAsState()
+        val vadMinSilencePref = prefs.overlayAudioVadMinSilenceMillis()
+        val vadMinSilence by vadMinSilencePref.collectAsState()
+        val vadMaxSpeechPref = prefs.overlayAudioVadMaxSpeechSeconds()
+        val vadMaxSpeech by vadMaxSpeechPref.collectAsState()
+        val vadSpeechPaddingPref = prefs.overlayAudioVadSpeechPaddingMillis()
+        val vadSpeechPadding by vadSpeechPaddingPref.collectAsState()
+        val vadOverlapPref = prefs.overlayAudioVadOverlapMillis()
+        val vadOverlap by vadOverlapPref.collectAsState()
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.pref_overlay_audio_title),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = prefs.mineOverlayAudio(),
+                    title = stringResource(MR.strings.pref_overlay_audio_enabled),
+                    subtitle = if (supported) {
+                        stringResource(MR.strings.pref_overlay_audio_enabled_summary)
+                    } else {
+                        stringResource(MR.strings.pref_overlay_audio_android_10_required)
+                    },
+                    enabled = supported,
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = prefs.overlayAudioVadOnly(),
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_only),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_vad_only_summary),
+                    enabled = supported && enabled,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = beforeSeconds,
+                    title = stringResource(MR.strings.pref_overlay_audio_before),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, beforeSeconds),
+                    valueRange = 0..60,
+                    steps = 59,
+                    enabled = supported && enabled,
+                    onValueChanged = beforePref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = afterSeconds,
+                    title = stringResource(MR.strings.pref_overlay_audio_after),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, afterSeconds),
+                    valueRange = 0..30,
+                    steps = 29,
+                    enabled = supported && enabled,
+                    onValueChanged = afterPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadThreshold,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_threshold),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_percent, vadThreshold),
+                    valueRange = 1..99,
+                    steps = 97,
+                    enabled = supported && enabled,
+                    onValueChanged = vadThresholdPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMinSpeech,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_min_speech),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadMinSpeech),
+                    valueRange = 50..2_000 step 50,
+                    steps = 38,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMinSpeechPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMinSilence,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_min_silence),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadMinSilence),
+                    valueRange = 50..3_000 step 50,
+                    steps = 58,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMinSilencePref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadMaxSpeech,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_max_speech),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_seconds, vadMaxSpeech),
+                    valueRange = 1..60,
+                    steps = 58,
+                    enabled = supported && enabled,
+                    onValueChanged = vadMaxSpeechPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadSpeechPadding,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_speech_padding),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadSpeechPadding),
+                    valueRange = 0..1_000 step 25,
+                    steps = 39,
+                    enabled = supported && enabled,
+                    onValueChanged = vadSpeechPaddingPref::set,
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = vadOverlap,
+                    title = stringResource(MR.strings.pref_overlay_audio_vad_overlap),
+                    subtitle = stringResource(MR.strings.pref_overlay_audio_milliseconds, vadOverlap),
+                    valueRange = 0..1_000 step 25,
+                    steps = 39,
+                    enabled = supported && enabled,
+                    onValueChanged = vadOverlapPref::set,
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.pref_overlay_audio_model_status),
+                    subtitle = when (val status = modelStatus) {
+                        OverlayAudioModelStatus.Checking -> stringResource(MR.strings.pref_overlay_audio_models_checking)
+                        OverlayAudioModelStatus.Missing -> stringResource(MR.strings.pref_overlay_audio_models_missing)
+                        OverlayAudioModelStatus.Downloading -> stringResource(MR.strings.pref_overlay_audio_models_downloading)
+                        OverlayAudioModelStatus.Installed -> stringResource(MR.strings.pref_overlay_audio_models_installed)
+                        is OverlayAudioModelStatus.Error -> stringResource(
+                            MR.strings.pref_overlay_audio_models_error,
+                            status.message,
+                        )
+                    },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = when (modelStatus) {
+                        OverlayAudioModelStatus.Installed -> stringResource(MR.strings.pref_overlay_audio_models_delete)
+                        is OverlayAudioModelStatus.Error -> stringResource(MR.strings.pref_overlay_audio_models_retry)
+                        else -> stringResource(MR.strings.pref_overlay_audio_models_download)
+                    },
+                    enabled = supported && modelStatus !is OverlayAudioModelStatus.Checking &&
+                        modelStatus !is OverlayAudioModelStatus.Downloading,
+                    onClick = when (modelStatus) {
+                        OverlayAudioModelStatus.Installed -> modelManager::deleteModels
+                        OverlayAudioModelStatus.Missing, is OverlayAudioModelStatus.Error -> modelManager::downloadModels
+                        else -> null
+                    },
+                ),
+            ),
+        )
     }
 
     @Composable
